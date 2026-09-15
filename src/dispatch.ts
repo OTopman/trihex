@@ -282,6 +282,60 @@ export class InMemoryDriverRegistry {
 }
 
 /**
+ * DriverSpatialStore: Abstract storage interface decoupling spatial indexing from physical storage engines.
+ * Implementations can be Redis, PostgreSQL, DynamoDB, or In-Memory.
+ */
+export interface DriverSpatialStore {
+  add(driverId: string, cell: TriHexId, version: number, metadata?: Partial<DriverPosition>): Promise<void>;
+  remove(driverId: string, cell: TriHexId, version: number, cityId?: string): Promise<void>;
+  findCandidates(cells: TriHexId[], limit: number, cityId?: string): Promise<string[]>;
+}
+
+/**
+ * In-memory reference implementation of DriverSpatialStore
+ */
+export class InMemoryDriverSpatialStore implements DriverSpatialStore {
+  constructor(private readonly registry: InMemoryDriverRegistry = new InMemoryDriverRegistry()) {}
+
+  public async add(driverId: string, cell: TriHexId, version: number, metadata?: Partial<DriverPosition>): Promise<void> {
+    const cityId = metadata?.cityId ?? 'default';
+    this.registry.update({
+      driverId,
+      cellId: cell,
+      version,
+      cityId,
+      lat: metadata?.lat ?? 0,
+      lng: metadata?.lng ?? 0,
+      updatedAt: metadata?.updatedAt ?? Date.now(),
+      status: metadata?.status ?? 'AVAILABLE',
+    });
+  }
+
+  public async remove(driverId: string, cell: TriHexId, version: number, cityId = 'default'): Promise<void> {
+    this.registry.remove(cityId, driverId, cell, version);
+  }
+
+  public async findCandidates(cells: TriHexId[], limit: number, cityId = 'default'): Promise<string[]> {
+    const result: string[] = [];
+    for (const cell of cells) {
+      const cellKey = formatCellKey(cityId, cell);
+      const drivers = this.registry.getDriversInCell(cellKey);
+      for (const d of drivers) {
+        if (!result.includes(d)) {
+          result.push(d);
+          if (result.length >= limit) return result;
+        }
+      }
+    }
+    return result;
+  }
+
+  public getRegistry(): InMemoryDriverRegistry {
+    return this.registry;
+  }
+}
+
+/**
  * Production-grade Multi-Tier Mobility Dispatch Engine.
  *
  * Tier 1: High-recall spatial retrieval over expanding triangular disks with intra-city sharding.

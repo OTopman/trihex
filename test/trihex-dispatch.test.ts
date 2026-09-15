@@ -344,6 +344,64 @@ async function runDispatchTests() {
   }
   console.log('  ✓ Verified 100% dense B-Tree interval density (end - start + 1 == 4^ΔR) across all resolutions.');
 
+  // =========================================================================
+  // TEST 5: Storage-Agnostic DriverSpatialStore Interface Contract
+  // =========================================================================
+  console.log('\n▶ Test 5: Storage-Agnostic DriverSpatialStore Interface Contract');
+  const { InMemoryDriverSpatialStore } = await import('../src/index');
+  const store = new InMemoryDriverSpatialStore();
+  const testCell = TriHex.latLngToCell(6.5244, 3.3792, 10);
+
+  await store.add('driver_alpha', testCell, 1, { lat: 6.5244, lng: 3.3792, cityId: 'lagos' });
+  let candidatesFound = await store.findCandidates([testCell], 10, 'lagos');
+  assert(candidatesFound.includes('driver_alpha'), 'Store must return added driver');
+
+  // Atomic remove
+  await store.remove('driver_alpha', testCell, 2, 'lagos');
+  candidatesFound = await store.findCandidates([testCell], 10, 'lagos');
+  assert(!candidatesFound.includes('driver_alpha'), 'Store must remove driver');
+  console.log('  ✓ Verified DriverSpatialStore contract (add, findCandidates, remove).');
+
+  // =========================================================================
+  // TEST 6: Routing Engine Failure Injection & Resilient Fallback
+  // =========================================================================
+  console.log('\n▶ Test 6: Routing Engine Failure Injection & Resilient Fallback');
+  const failingProvider: RouteCostProvider = {
+    async getRouteCost() {
+      throw new Error('OSRM 503 Service Unavailable (Network partition / outage)');
+    },
+  };
+
+  const resilientEngine = TriHex.createDispatchEngine({
+    routeCostProvider: failingProvider,
+  });
+
+  const resilientCell = TriHex.latLngToCell(6.5244, 3.3792, 12);
+  await resilientEngine.updateDriverPosition({
+    driverId: 'drv_resilient_1',
+    lat: 6.5250,
+    lng: 3.3795,
+    cellId: resilientCell,
+    cityId: 'lagos',
+    version: 1,
+    updatedAt: Date.now(),
+    status: 'AVAILABLE',
+  });
+
+  const fallbackCandidates = await resilientEngine.findCandidates({
+    pickup: { lat: 6.5244, lng: 3.3792 },
+    pickupCellId: resilientCell,
+    cityId: 'lagos',
+    initialRadius: 1,
+    maxRadius: 1,
+    requiredStatus: 'AVAILABLE',
+  });
+
+  assert(fallbackCandidates.length === 1, 'Engine must recover from routing failure and return candidates via Tier 1 fallback');
+  assert(fallbackCandidates[0].driverId === 'drv_resilient_1', 'Candidate must match registered driver');
+  assert(fallbackCandidates[0].estimatedDurationSeconds > 0, 'Must have valid fallback geodesic duration');
+  console.log('  ✓ Verified graceful Tier 1 geodesic fallback when Tier 2 routing engine experiences outage.');
+
   console.log('\n🏆 ALL MOBILITY DISPATCH TESTS COMPLETED WITH ZERO DEFECTS!\n');
 }
 

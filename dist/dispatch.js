@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DispatchEngine = exports.InMemoryDriverRegistry = exports.REMOVE_DRIVER_LUA = exports.MIGRATE_DRIVER_LUA = exports.DEFAULT_SHARD_RESOLUTION = void 0;
+exports.DispatchEngine = exports.InMemoryDriverSpatialStore = exports.InMemoryDriverRegistry = exports.REMOVE_DRIVER_LUA = exports.MIGRATE_DRIVER_LUA = exports.DEFAULT_SHARD_RESOLUTION = void 0;
 exports.getSpatialShard = getSpatialShard;
 exports.formatCellKey = formatCellKey;
 exports.formatDriverKey = formatDriverKey;
@@ -192,6 +192,50 @@ class InMemoryDriverRegistry {
     }
 }
 exports.InMemoryDriverRegistry = InMemoryDriverRegistry;
+/**
+ * In-memory reference implementation of DriverSpatialStore
+ */
+class InMemoryDriverSpatialStore {
+    registry;
+    constructor(registry = new InMemoryDriverRegistry()) {
+        this.registry = registry;
+    }
+    async add(driverId, cell, version, metadata) {
+        const cityId = metadata?.cityId ?? 'default';
+        this.registry.update({
+            driverId,
+            cellId: cell,
+            version,
+            cityId,
+            lat: metadata?.lat ?? 0,
+            lng: metadata?.lng ?? 0,
+            updatedAt: metadata?.updatedAt ?? Date.now(),
+            status: metadata?.status ?? 'AVAILABLE',
+        });
+    }
+    async remove(driverId, cell, version, cityId = 'default') {
+        this.registry.remove(cityId, driverId, cell, version);
+    }
+    async findCandidates(cells, limit, cityId = 'default') {
+        const result = [];
+        for (const cell of cells) {
+            const cellKey = formatCellKey(cityId, cell);
+            const drivers = this.registry.getDriversInCell(cellKey);
+            for (const d of drivers) {
+                if (!result.includes(d)) {
+                    result.push(d);
+                    if (result.length >= limit)
+                        return result;
+                }
+            }
+        }
+        return result;
+    }
+    getRegistry() {
+        return this.registry;
+    }
+}
+exports.InMemoryDriverSpatialStore = InMemoryDriverSpatialStore;
 /**
  * Production-grade Multi-Tier Mobility Dispatch Engine.
  *

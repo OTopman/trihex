@@ -123,6 +123,26 @@ export declare class InMemoryDriverRegistry {
     clear(): void;
 }
 /**
+ * DriverSpatialStore: Abstract storage interface decoupling spatial indexing from physical storage engines.
+ * Implementations can be Redis, PostgreSQL, DynamoDB, or In-Memory.
+ */
+export interface DriverSpatialStore {
+    add(driverId: string, cell: TriHexId, version: number, metadata?: Partial<DriverPosition>): Promise<void>;
+    remove(driverId: string, cell: TriHexId, version: number, cityId?: string): Promise<void>;
+    findCandidates(cells: TriHexId[], limit: number, cityId?: string): Promise<string[]>;
+}
+/**
+ * In-memory reference implementation of DriverSpatialStore
+ */
+export declare class InMemoryDriverSpatialStore implements DriverSpatialStore {
+    private readonly registry;
+    constructor(registry?: InMemoryDriverRegistry);
+    add(driverId: string, cell: TriHexId, version: number, metadata?: Partial<DriverPosition>): Promise<void>;
+    remove(driverId: string, cell: TriHexId, version: number, cityId?: string): Promise<void>;
+    findCandidates(cells: TriHexId[], limit: number, cityId?: string): Promise<string[]>;
+    getRegistry(): InMemoryDriverRegistry;
+}
+/**
  * Production-grade Multi-Tier Mobility Dispatch Engine.
  *
  * Tier 1: High-recall spatial retrieval over expanding triangular disks with intra-city sharding.
