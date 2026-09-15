@@ -59,17 +59,17 @@ function runBenchmarks() {
     console.log(`🚀 cellToChildrenRange (Range):  ${opsPerSec} ops/sec (${usPerOp} µs/op)`);
   }
 
-  // 5. getHexNeighbors (Voronoi Dual Lookup) Benchmark
+  // 5. getCellNeighbors (edge lookup) Benchmark
   {
     const sampleCell = TriHex.latLngToCell(6.5244, 3.3792, 9);
     const start = performance.now();
     for (let i = 0; i < iterations; i++) {
-      TriHex.getHexNeighbors(sampleCell);
+      TriHex.getCellNeighbors(sampleCell);
     }
     const elapsed = performance.now() - start;
     const opsPerSec = (iterations / (elapsed / 1000)).toLocaleString(undefined, { maximumFractionDigits: 0 });
     const usPerOp = (elapsed / iterations * 1000).toFixed(2);
-    console.log(`🚀 getHexNeighbors (Voronoi):    ${opsPerSec} ops/sec (${usPerOp} µs/op)`);
+    console.log(`🚀 getCellNeighbors (edge):    ${opsPerSec} ops/sec (${usPerOp} µs/op)`);
   }
 
   console.log('\n✅ Benchmark Completed!\n');

@@ -122,8 +122,8 @@ async function runMassiveScaleAudit() {
     const cell = TriHex.latLngToCell(lat, lng, 10);
     assert(cell > 0n, `Cell at boundary (${lat}, ${lng}) must be a positive 63-bit integer`);
 
-    const neighbors = TriHex.getHexNeighbors(cell);
-    assert(neighbors.length === 6, `Cell at boundary must have exactly 6 Voronoi neighbors`);
+    const neighbors = TriHex.getCellNeighbors(cell);
+    assert(neighbors.length === 3, `Cell at boundary must have exactly 3 edge neighbours`);
 
     validSingularities++;
   }
@@ -131,7 +131,7 @@ async function runMassiveScaleAudit() {
   const t1_2 = process.hrtime.bigint();
   const timeMs2 = Number(t1_2 - t0_2) / 1_000_000;
   console.log(`  ✓ Evaluated: ${N2.toLocaleString()} extreme singularities (poles, antimeridian, vertices, equator, seams) in ${timeMs2.toFixed(0)} ms`);
-  console.log(`  ✓ Stability: ${validSingularities.toLocaleString()}/${N2.toLocaleString()} (100.00%) produced non-negative 63-bit IDs and 6-neighbor closure`);
+  console.log(`  ✓ Stability: ${validSingularities.toLocaleString()}/${N2.toLocaleString()} (100.00%) produced non-negative 63-bit IDs and 3-edge-neighbour closure`);
 
   // =========================================================================
   // 3. 200,000 HIERARCHICAL 1:4 QUADTREES & B-TREE INTERVAL PROOFS
@@ -173,7 +173,7 @@ async function runMassiveScaleAudit() {
   // =========================================================================
   // 4. 100,000-EDGE GLOBAL VORONOI RECIPROCAL SYMMETRY AUDIT
   // =========================================================================
-  console.log('\n▶ TEST 4: 100,000-Edge Global Voronoi Reciprocal Symmetry Audit');
+  console.log('\n▶ TEST 4: 100,000-Edge Triangular Reciprocal Symmetry Audit');
   const edgeCountTarget = 100_000;
   let edgesVerified = 0;
   let reciprocalMatches = 0;
@@ -185,13 +185,13 @@ async function runMassiveScaleAudit() {
     const res = 7 + (edgesVerified % 4); // resolutions 7, 8, 9, 10
     const cellA = TriHex.latLngToCell(lat, lng, res);
 
-    const neighborsA = TriHex.getHexNeighbors(cellA);
-    assert(neighborsA.length === 6, 'Cell A must have 6 neighbors');
+    const neighborsA = TriHex.getCellNeighbors(cellA);
+    assert(neighborsA.length === 3, 'Cell A must have 3 edge neighbours');
 
     for (const cellB of neighborsA) {
       edgesVerified++;
-      const neighborsB = TriHex.getHexNeighbors(cellB);
-      assert(neighborsB.length === 6, 'Neighbor Cell B must have 6 neighbors');
+      const neighborsB = TriHex.getCellNeighbors(cellB);
+      assert(neighborsB.length === 3, 'Neighbor Cell B must have 3 edge neighbours');
 
       // Check reciprocal: cellA must be in neighborsB
       if (neighborsB.includes(cellA)) {
@@ -204,7 +204,7 @@ async function runMassiveScaleAudit() {
   const t1_4 = process.hrtime.bigint();
   const timeMs4 = Number(t1_4 - t0_4) / 1_000_000;
   const reciprocityPct = (reciprocalMatches / edgesVerified) * 100;
-  console.log(`  ✓ Sampled: ${edgesVerified.toLocaleString()} directed Voronoi edges in ${timeMs4.toFixed(0)} ms`);
+  console.log(`  ✓ Sampled: ${edgesVerified.toLocaleString()} directed triangular edges in ${timeMs4.toFixed(0)} ms`);
   console.log(`  ✓ Reciprocal Symmetry: ${reciprocalMatches.toLocaleString()}/${edgesVerified.toLocaleString()} (${reciprocityPct.toFixed(2)}%) zero orphaned edges`);
   assert(reciprocalMatches === edgesVerified, `Reciprocal symmetry violated! Expected 100%, got ${reciprocityPct}%`);
 
@@ -367,7 +367,7 @@ async function runMassiveScaleAudit() {
         TriHex.cellToLatLng(BigInt('0x8000000000000000') + BigInt(i));
       } else {
         // DoS HexRing expansion attack (requesting radius 500)
-        TriHex.hexRing(0x4e40000000005ea2n, 500);
+        TriHex.cellDisk(0x4e40000000005ea2n, 500);
       }
     } catch {
       caughtRejections++;

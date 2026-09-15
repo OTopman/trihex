@@ -9,21 +9,31 @@ const serialization_1 = require("./serialization");
 /**
  * Atomic Redis Lua script for driver cell migration.
  *
- * Atomically removes driver from old cell set, adds to new cell set,
- * refreshes cell TTL, and records driver location with TTL.
- * Eliminates ghost drivers caused by process crashes or network split-brain.
+ * Atomically accepts only non-stale driver updates, removes membership from the
+ * authoritative previous cell, adds the new membership, refreshes TTLs, and
+ * records the new position. The previous cell is read from the stored record;
+ * it is never trusted from a caller-provided oldCellId.
  */
 exports.MIGRATE_DRIVER_LUA = `
-local oldCellKey = KEYS[1]
-local newCellKey = KEYS[2]
-local driverPosKey = KEYS[3]
+local newCellKey = KEYS[1]
+local driverPosKey = KEYS[2]
 local driverId = ARGV[1]
 local cellTtl = tonumber(ARGV[2])
 local driverTtl = tonumber(ARGV[3])
 local payload = ARGV[4]
+local incoming = cjson.decode(payload)
+local existingRaw = redis.call("GET", driverPosKey)
 
-if oldCellKey and oldCellKey ~= "" and oldCellKey ~= newCellKey then
-  redis.call("SREM", oldCellKey, driverId)
+if existingRaw then
+  local existing = cjson.decode(existingRaw)
+  if tonumber(existing.updatedAt) > tonumber(incoming.updatedAt) then
+    return 0
+  end
+
+  local oldCellKey = existing.cellKey
+  if oldCellKey and oldCellKey ~= "" and oldCellKey ~= newCellKey then
+    redis.call("SREM", oldCellKey, driverId)
+  end
 end
 
 redis.call("SADD", newCellKey, driverId)
@@ -62,8 +72,13 @@ class InMemoryDriverRegistry {
     cellDrivers = new Map();
     driverPositions = new Map();
     update(pos, oldCellId) {
-        if (oldCellId !== undefined && oldCellId !== pos.cellId) {
-            const oldKey = formatCellKey(pos.cityId, oldCellId);
+        const current = this.driverPositions.get(formatDriverKey(pos.cityId, pos.driverId));
+        if (current && current.updatedAt > pos.updatedAt) {
+            return;
+        }
+        const authoritativeOldCellId = current?.cellId ?? oldCellId;
+        if (authoritativeOldCellId !== undefined && authoritativeOldCellId !== pos.cellId) {
+            const oldKey = formatCellKey(pos.cityId, authoritativeOldCellId);
             this.cellDrivers.get(oldKey)?.delete(pos.driverId);
         }
         const newKey = formatCellKey(pos.cityId, pos.cellId);
@@ -124,15 +139,18 @@ class DispatchEngine {
      * If Redis is provided, uses atomic Lua script. Otherwise updates in-memory registry.
      */
     async updateDriverPosition(position, oldCellId) {
+        if (!Number.isFinite(position.updatedAt)) {
+            throw new TypeError(`updatedAt must be a finite timestamp, received ${position.updatedAt}`);
+        }
         const newCellKey = formatCellKey(position.cityId, position.cellId);
-        const oldCellKey = oldCellId !== undefined ? formatCellKey(position.cityId, oldCellId) : '';
         const driverKey = formatDriverKey(position.cityId, position.driverId);
         const payload = JSON.stringify({
             ...position,
             cellId: position.cellId.toString(),
+            cellKey: newCellKey,
         });
         if (this.redis) {
-            await this.redis.eval(exports.MIGRATE_DRIVER_LUA, 3, oldCellKey, newCellKey, driverKey, position.driverId, this.cellTtl, this.driverTtl, payload);
+            await this.redis.eval(exports.MIGRATE_DRIVER_LUA, 2, newCellKey, driverKey, position.driverId, this.cellTtl, this.driverTtl, payload);
         }
         else {
             this.inMemory.update(position, oldCellId);
@@ -186,11 +204,11 @@ class DispatchEngine {
         const maxRadius = query.maxRadius ?? 3;
         const requiredStatus = query.requiredStatus ?? 'AVAILABLE';
         const maxResults = query.maxResults ?? this.tier2Limit;
-        // Collect candidate driver IDs across concentric hex rings
+        // Collect candidate driver IDs across concentric triangular graph disks.
         const seenDriverIds = new Set();
         const candidateIds = [];
         for (let r = initialRadius; r <= maxRadius; r++) {
-            const ringCells = (0, hex_dual_1.hexRing)(query.pickupCellId, r);
+            const ringCells = (0, hex_dual_1.cellDisk)(query.pickupCellId, r);
             // Collect drivers in these ring cells
             for (const cell of ringCells) {
                 const cellKey = formatCellKey(query.cityId, cell);

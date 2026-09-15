@@ -28,7 +28,8 @@ export interface CellFeatureProperties {
  */
 export declare function cellToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeometry, CellFeatureProperties>;
 /**
- * Converts the hexagonal Voronoi dual of a TriHex cell into a standard RFC 7946 GeoJSON Feature<Polygon>.
+ * @deprecated TriHex stores triangles and has no globally regular hexagonal
+ * dual. This compatibility export returns the actual triangular cell geometry.
  */
 export declare function hexDualToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeometry, CellFeatureProperties>;
 /**

@@ -1,10 +1,20 @@
 import { TriHex } from '../src/index';
+import { geoToVector3D } from '../src/icosahedron';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
     console.error(`❌ Assertion Failed: ${message}`);
     process.exit(1);
   }
+}
+
+function sharesCompleteEdge(a: bigint, b: bigint): boolean {
+  const vertices = (id: bigint) => TriHex.cellToBoundary(id)
+    .map((point) => geoToVector3D(point.lat, point.lng)
+      .map((coordinate) => coordinate.toFixed(10)).join(','));
+  const aVertices = vertices(a);
+  const bVertices = new Set(vertices(b));
+  return aVertices.filter((vertex) => bVertices.has(vertex)).length === 2;
 }
 
 function runAuditProofs() {
@@ -48,7 +58,8 @@ function runAuditProofs() {
     // Verify foreign resolutions are strictly EXCLUDED
     for (let foreignRes = 0; foreignRes <= 15; foreignRes++) {
       if (foreignRes === childRes) continue;
-      const foreignResCell = TriHex.pack(f, foreignRes, startMorton, 0, 0);
+      const foreignResMorton = foreignRes === 0 ? 0n : (1n << BigInt(foreignRes * 2)) - 1n;
+      const foreignResCell = TriHex.pack(f, foreignRes, foreignResMorton, 0, 0);
       assert(
         foreignResCell < range.start || foreignResCell > range.end,
         `Foreign resolution ${foreignRes} must NOT be inside range for childRes ${childRes}!`
@@ -60,37 +71,42 @@ function runAuditProofs() {
   console.log(`  ✓ Verified ${testedRanges} face ranges: 100% containment of children, 0% foreign face leaks, 0% foreign resolution leaks.`);
 
   // =========================================================================
-  // PROOF 2: 100% 6-Neighbor Count & 100% Reciprocal Symmetry (P0-2 Fix Verification)
+  // PROOF 2: 3-Edge-Neighbour Count & Reciprocal Symmetry (P0-2 Fix Verification)
   // =========================================================================
-  console.log('\n▶ Proof 2: 100% 6-Neighbor Adjacency & 100% Reciprocal Symmetry');
+  console.log('\n▶ Proof 2: 3-Edge-Neighbour Adjacency & Reciprocal Symmetry');
   const sampleCount = 5_000;
   let asymmetricEdges = 0;
   let totalEdges = 0;
-  let nonSixNeighbors = 0;
+  let nonThreeNeighbors = 0;
+  let nonEdgeNeighbors = 0;
 
   for (let i = 0; i < sampleCount; i++) {
     const lat = (Math.random() - 0.5) * 170;
     const lng = (Math.random() - 0.5) * 360;
     const cellA = TriHex.latLngToCell(lat, lng, 6);
-    const neighborsOfA = TriHex.getHexNeighbors(cellA);
+    const neighborsOfA = TriHex.getCellNeighbors(cellA);
 
-    if (neighborsOfA.length !== 6) {
-      nonSixNeighbors++;
+    if (neighborsOfA.length !== 3) {
+      nonThreeNeighbors++;
     }
 
     for (const cellB of neighborsOfA) {
       totalEdges++;
-      const neighborsOfB = TriHex.getHexNeighbors(cellB);
+      if (!sharesCompleteEdge(cellA, cellB)) {
+        nonEdgeNeighbors++;
+      }
+      const neighborsOfB = TriHex.getCellNeighbors(cellB);
       if (!neighborsOfB.some((c) => c === cellA)) {
         asymmetricEdges++;
       }
     }
   }
 
-  assert(nonSixNeighbors === 0, `Expected 0 cells with != 6 neighbors, got ${nonSixNeighbors}`);
+  assert(nonThreeNeighbors === 0, `Expected 0 cells with != 3 neighbours, got ${nonThreeNeighbors}`);
+  assert(nonEdgeNeighbors === 0, `Expected every neighbour to share a complete edge, got ${nonEdgeNeighbors} violations`);
   assert(asymmetricEdges === 0, `Expected 0 asymmetric edges, got ${asymmetricEdges}`);
-  console.log(`  ✓ Sampled ${sampleCount} global cells: exactly 6 neighbors for 100% of cells.`);
-  console.log(`  ✓ Verified ${totalEdges} directed neighbor edges: 100.00% reciprocal symmetry (zero orphaned links).`);
+  console.log(`  ✓ Sampled ${sampleCount} global cells: exactly 3 edge neighbours for 100% of cells.`);
+  console.log(`  ✓ Verified ${totalEdges} directed shared edges: 100.00% reciprocal symmetry (zero orphaned links).`);
 
   // =========================================================================
   // PROOF 3: Antimeridian Crossing & Scanline Rasterization (P0-3 Fix Verification)
@@ -228,6 +244,25 @@ function runAuditProofs() {
   }
   assert(threwOOB, 'latLngToCell must throw RangeError on latitude > 90');
 
+  // Malformed component packing must reject rather than mask into another ID.
+  const invalidPacks: [number, number, bigint][] = [
+    [-1, 0, 0n],
+    [20, 0, 0n],
+    [0, -1, 0n],
+    [0, 16, 0n],
+    [0, 2, -1n],
+    [0, 2, 16n],
+  ];
+  for (const [face, resolution, morton] of invalidPacks) {
+    let threw = false;
+    try {
+      TriHex.pack(face, resolution, morton);
+    } catch (err: any) {
+      threw = err instanceof RangeError;
+    }
+    assert(threw, `pack must reject invalid components (${face}, ${resolution}, ${morton})`);
+  }
+
   // Out of bounds cluster ID
   let threwCluster = false;
   try {
@@ -237,18 +272,18 @@ function runAuditProofs() {
   }
   assert(threwCluster, 'latLngToCell must throw RangeError on cluster ID > 4095');
 
-  // hexRing DoS guard
+  // cellDisk DoS guard
   let threwRingDoS = false;
   try {
     const validCell = TriHex.latLngToCell(0, 0, 9);
-    TriHex.hexRing(validCell, 100);
+    TriHex.cellDisk(validCell, 100);
   } catch (err: any) {
     threwRingDoS = err instanceof RangeError;
   }
-  assert(threwRingDoS, 'hexRing must throw RangeError when radius exceeds MAX_HEX_RING_RADIUS (15)');
+  assert(threwRingDoS, 'cellDisk must throw RangeError when radius exceeds MAX_CELL_RING_RADIUS (15)');
 
   console.log(
-    '  ✓ Verified strict input rejection: NaNs, Infinities, latitude bounds, cluster IDs, and hexRing DoS limits all safely enforced.'
+    '  ✓ Verified strict input rejection: NaNs, Infinities, latitude bounds, cluster IDs, and cellDisk DoS limits all safely enforced.'
   );
 
   console.log('\n🏆 ALL AUDIT PROOFS VERIFIED WITH 100% MATHEMATICAL RIGOR!\n');

@@ -34,17 +34,18 @@ export declare class TriHex {
      * at a finer targetResolution for instant B-Tree SQL index scans.
      */
     static cellToChildrenRange(id: TriHexId, targetResolution: number): CellRange;
+    /** Returns the three cells sharing an edge with this triangular cell. */
+    static getCellNeighbors(id: TriHexId): TriHexId[];
     /**
-     * Returns the 6 equidistant adjacent cells of the cell's hexagonal Voronoi dual
+     * @deprecated This compatibility alias returns triangular edge neighbours,
+     * not six hexagonal Voronoi neighbours. Use getCellNeighbors.
      */
     static getHexNeighbors(id: TriHexId): TriHexId[];
-    /**
-     * Returns all cells within a hexagonal k-ring radius around the origin cell
-     */
+    /** Returns the triangular edge-adjacency graph disk within radius k. */
+    static cellDisk(originId: TriHexId, radius: number): TriHexId[];
+    /** @deprecated This compatibility alias returns a triangular graph disk. */
     static hexRing(originId: TriHexId, radius: number): TriHexId[];
-    /**
-     * Returns the 6 boundary coordinates forming the hexagonal Voronoi dual
-     */
+    /** @deprecated Returns the actual triangular boundary; no hexagonal dual exists. */
     static getHexDualBoundary(id: TriHexId): GeoCoord[];
     /**
      * Singleton road network topology partition registry

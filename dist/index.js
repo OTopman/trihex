@@ -105,23 +105,37 @@ class TriHex {
      * at a finer targetResolution for instant B-Tree SQL index scans.
      */
     static cellToChildrenRange(id, targetResolution) {
+        if (!(0, serialization_1.isValidCell)(id)) {
+            throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
+        }
         return (0, triangle_quadtree_1.cellToChildrenRange)(id, targetResolution);
     }
+    /** Returns the three cells sharing an edge with this triangular cell. */
+    static getCellNeighbors(id) {
+        if (!(0, serialization_1.isValidCell)(id)) {
+            throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
+        }
+        return (0, hex_dual_1.getCellNeighbors)(id);
+    }
     /**
-     * Returns the 6 equidistant adjacent cells of the cell's hexagonal Voronoi dual
+     * @deprecated This compatibility alias returns triangular edge neighbours,
+     * not six hexagonal Voronoi neighbours. Use getCellNeighbors.
      */
     static getHexNeighbors(id) {
         return (0, hex_dual_1.getHexNeighbors)(id);
     }
-    /**
-     * Returns all cells within a hexagonal k-ring radius around the origin cell
-     */
+    /** Returns the triangular edge-adjacency graph disk within radius k. */
+    static cellDisk(originId, radius) {
+        if (!(0, serialization_1.isValidCell)(originId)) {
+            throw new RangeError(`Invalid TriHexId: 0x${originId.toString(16)}`);
+        }
+        return (0, hex_dual_1.cellDisk)(originId, radius);
+    }
+    /** @deprecated This compatibility alias returns a triangular graph disk. */
     static hexRing(originId, radius) {
         return (0, hex_dual_1.hexRing)(originId, radius);
     }
-    /**
-     * Returns the 6 boundary coordinates forming the hexagonal Voronoi dual
-     */
+    /** @deprecated Returns the actual triangular boundary; no hexagonal dual exists. */
     static getHexDualBoundary(id) {
         return (0, hex_dual_1.getHexDualBoundary)(id);
     }
@@ -241,6 +255,9 @@ class TriHex {
      * Unpack a 64-bit TriHexId into its individual components
      */
     static unpack(id) {
+        if (!(0, serialization_1.isValidCell)(id)) {
+            throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
+        }
         return (0, triangle_quadtree_1.unpackTriHexId)(id);
     }
     /**

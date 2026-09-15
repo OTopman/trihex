@@ -15,6 +15,15 @@ const types_1 = require("./types");
  * Optional dualSector and topoCluster are accepted for backward compatibility.
  */
 function packTriHexId(face, resolution, morton, _dualSector = 0, _topoCluster = 0) {
+    if (!Number.isInteger(face) || face < 0 || face >= types_1.BIT_LAYOUT.TOTAL_FACES) {
+        throw new RangeError(`Face ${face} must be an integer between 0 and ${types_1.BIT_LAYOUT.TOTAL_FACES - 1}`);
+    }
+    if (!Number.isInteger(resolution) || resolution < 0 || resolution > types_1.BIT_LAYOUT.MAX_RESOLUTION) {
+        throw new RangeError(`Resolution ${resolution} must be an integer between 0 and ${types_1.BIT_LAYOUT.MAX_RESOLUTION}`);
+    }
+    if (typeof morton !== 'bigint' || morton < 0n || morton >= (1n << BigInt(resolution * 2))) {
+        throw new RangeError(`Morton code ${morton} is invalid for resolution ${resolution}`);
+    }
     let id = 0n;
     id |= (BigInt(face) & 0x1fn) << types_1.BIT_LAYOUT.FACE_SHIFT;
     id |= (BigInt(resolution) & 0x0fn) << types_1.BIT_LAYOUT.RES_SHIFT;

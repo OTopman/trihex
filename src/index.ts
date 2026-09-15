@@ -12,7 +12,13 @@ import {
   GeoJSONPolygonGeometry,
   hexDualToGeoJSON,
 } from './geojson';
-import { getHexDualBoundary, getHexNeighbors, hexRing } from './hex-dual';
+import {
+  cellDisk,
+  getCellNeighbors,
+  getHexDualBoundary,
+  getHexNeighbors,
+  hexRing,
+} from './hex-dual';
 import { geoToVector3D, projectToFace } from './icosahedron';
 import {
   defaultTopologyRegistry,
@@ -157,26 +163,42 @@ export class TriHex {
    * at a finer targetResolution for instant B-Tree SQL index scans.
    */
   public static cellToChildrenRange(id: TriHexId, targetResolution: number): CellRange {
+    if (!isValidCell(id)) {
+      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
+    }
     return cellToChildrenRange(id, targetResolution);
   }
 
+  /** Returns the three cells sharing an edge with this triangular cell. */
+  public static getCellNeighbors(id: TriHexId): TriHexId[] {
+    if (!isValidCell(id)) {
+      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
+    }
+    return getCellNeighbors(id);
+  }
+
   /**
-   * Returns the 6 equidistant adjacent cells of the cell's hexagonal Voronoi dual
+   * @deprecated This compatibility alias returns triangular edge neighbours,
+   * not six hexagonal Voronoi neighbours. Use getCellNeighbors.
    */
   public static getHexNeighbors(id: TriHexId): TriHexId[] {
     return getHexNeighbors(id);
   }
 
-  /**
-   * Returns all cells within a hexagonal k-ring radius around the origin cell
-   */
+  /** Returns the triangular edge-adjacency graph disk within radius k. */
+  public static cellDisk(originId: TriHexId, radius: number): TriHexId[] {
+    if (!isValidCell(originId)) {
+      throw new RangeError(`Invalid TriHexId: 0x${originId.toString(16)}`);
+    }
+    return cellDisk(originId, radius);
+  }
+
+  /** @deprecated This compatibility alias returns a triangular graph disk. */
   public static hexRing(originId: TriHexId, radius: number): TriHexId[] {
     return hexRing(originId, radius);
   }
 
-  /**
-   * Returns the 6 boundary coordinates forming the hexagonal Voronoi dual
-   */
+  /** @deprecated Returns the actual triangular boundary; no hexagonal dual exists. */
   public static getHexDualBoundary(id: TriHexId): GeoCoord[] {
     return getHexDualBoundary(id);
   }
@@ -348,6 +370,9 @@ export class TriHex {
    * Unpack a 64-bit TriHexId into its individual components
    */
   public static unpack(id: TriHexId) {
+    if (!isValidCell(id)) {
+      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
+    }
     return unpackTriHexId(id);
   }
 
