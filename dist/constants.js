@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FACE_CENTROIDS = exports.FACE_NORMALS = exports.ICOSAHEDRON_FACES = exports.ICOSAHEDRON_VERTICES = void 0;
+exports.VERTEX_FACES = exports.FACE_EDGE_NEIGHBORS = exports.FACE_CENTROIDS = exports.FACE_NORMALS = exports.ICOSAHEDRON_FACES = exports.ICOSAHEDRON_VERTICES = void 0;
 // Golden ratio phi = (1 + sqrt(5)) / 2
 const PHI = (1 + Math.sqrt(5)) / 2;
 // Normalization factor: sqrt(1 + PHI^2)
@@ -61,7 +61,6 @@ exports.FACE_NORMALS = exports.ICOSAHEDRON_FACES.map(([i0, i1, i2]) => {
     const v0 = exports.ICOSAHEDRON_VERTICES[i0];
     const v1 = exports.ICOSAHEDRON_VERTICES[i1];
     const v2 = exports.ICOSAHEDRON_VERTICES[i2];
-    // (v1 - v0) x (v2 - v0)
     const e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
     const e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
     const cross = [
@@ -85,3 +84,83 @@ exports.FACE_CENTROIDS = exports.ICOSAHEDRON_FACES.map(([i0, i1, i2]) => {
     const len = Math.hypot(cx, cy, cz);
     return [cx / len, cy / len, cz / len];
 });
+/**
+ * Precomputed 30-edge face adjacency table.
+ * For each face f (0..19) and edge e (0..2):
+ * Edge 0: v0 -> v1 (v = 0)
+ * Edge 1: v1 -> v2 (u + v = 1)
+ * Edge 2: v2 -> v0 (u = 0)
+ *
+ * Returns [neighborFace, neighborEdge] where the neighbor edge traverses
+ * the same two vertices in opposite winding.
+ */
+exports.FACE_EDGE_NEIGHBORS = (() => {
+    const neighbors = Array.from({ length: 20 }, () => []);
+    for (let f = 0; f < 20; f++) {
+        const [v0, v1, v2] = exports.ICOSAHEDRON_FACES[f];
+        const fEdges = [[v0, v1], [v1, v2], [v2, v0]];
+        for (let e = 0; e < 3; e++) {
+            const [a, b] = fEdges[e];
+            let matched = false;
+            for (let f2 = 0; f2 < 20; f2++) {
+                if (f === f2)
+                    continue;
+                const [u0, u1, u2] = exports.ICOSAHEDRON_FACES[f2];
+                const f2Edges = [[u0, u1], [u1, u2], [u2, u0]];
+                for (let e2 = 0; e2 < 3; e2++) {
+                    const [c, d] = f2Edges[e2];
+                    if (a === d && b === c) {
+                        neighbors[f][e] = [f2, e2];
+                        matched = true;
+                        break;
+                    }
+                }
+                if (matched)
+                    break;
+            }
+            if (!matched) {
+                throw new Error(`Icosahedron seam topology error: no matching edge for face ${f} edge ${e}`);
+            }
+        }
+    }
+    return neighbors;
+})();
+/**
+ * Precomputed mapping of each icosahedron vertex (0..11) to the 5 faces meeting at it,
+ * arranged in consecutive cyclic order around the vertex.
+ */
+exports.VERTEX_FACES = (() => {
+    const vFaces = Array.from({ length: 12 }, () => []);
+    for (let f = 0; f < 20; f++) {
+        const [v0, v1, v2] = exports.ICOSAHEDRON_FACES[f];
+        vFaces[v0].push(f);
+        vFaces[v1].push(f);
+        vFaces[v2].push(f);
+    }
+    // Order faces cyclically around each vertex
+    for (let v = 0; v < 12; v++) {
+        const faces = vFaces[v];
+        const ordered = [faces[0]];
+        const remaining = new Set(faces.slice(1));
+        while (remaining.size > 0) {
+            const current = ordered[ordered.length - 1];
+            let nextFace = null;
+            for (let e = 0; e < 3; e++) {
+                const [nF] = exports.FACE_EDGE_NEIGHBORS[current][e];
+                if (remaining.has(nF)) {
+                    nextFace = nF;
+                    break;
+                }
+            }
+            if (nextFace !== null) {
+                ordered.push(nextFace);
+                remaining.delete(nextFace);
+            }
+            else {
+                break;
+            }
+        }
+        vFaces[v] = ordered;
+    }
+    return vFaces;
+})();

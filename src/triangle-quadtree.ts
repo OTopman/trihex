@@ -1,11 +1,12 @@
 import { inverseProjectFromFace } from './icosahedron';
 import { BIT_LAYOUT, CellRange, GeoCoord, TriHexId } from './types';
+import { validateCellId, validateResolution } from './validation';
 
-type Point2D = [number, number];
+export type Point2D = [number, number];
 
 /**
- * Encodes face, resolution, and morton code into a 64-bit TriHexId (63-bit non-negative).
- * Optional dualSector and topoCluster are accepted for backward compatibility.
+ * Encodes face, resolution, and Morton code into a 64-bit TriHexId (strictly 63-bit non-negative).
+ * Performs strict validation and rejects invalid inputs without masking.
  */
 export function packTriHexId(
   face: number,
@@ -14,31 +15,43 @@ export function packTriHexId(
   _dualSector = 0,
   _topoCluster = 0
 ): TriHexId {
-  if (!Number.isInteger(face) || face < 0 || face >= BIT_LAYOUT.TOTAL_FACES) {
+  if (typeof face !== 'number' || !Number.isInteger(face) || face < 0 || face >= BIT_LAYOUT.TOTAL_FACES) {
     throw new RangeError(`Face ${face} must be an integer between 0 and ${BIT_LAYOUT.TOTAL_FACES - 1}`);
   }
-  if (!Number.isInteger(resolution) || resolution < 0 || resolution > BIT_LAYOUT.MAX_RESOLUTION) {
+  if (typeof resolution !== 'number' || !Number.isInteger(resolution) || resolution < 0 || resolution > BIT_LAYOUT.MAX_RESOLUTION) {
     throw new RangeError(`Resolution ${resolution} must be an integer between 0 and ${BIT_LAYOUT.MAX_RESOLUTION}`);
   }
-  if (typeof morton !== 'bigint' || morton < 0n || morton >= (1n << BigInt(resolution * 2))) {
-    throw new RangeError(`Morton code ${morton} is invalid for resolution ${resolution}`);
+  if (typeof morton !== 'bigint') {
+    throw new TypeError(`Morton code must be a BigInt, received ${typeof morton}`);
   }
+  const maxMorton = resolution === 0 ? 0n : (1n << BigInt(resolution * 2)) - 1n;
+  if (morton < 0n || morton > maxMorton) {
+    throw new RangeError(`Morton code ${morton} is invalid for resolution ${resolution} (must be in [0, ${maxMorton}])`);
+  }
+
   let id = 0n;
-  id |= (BigInt(face) & 0x1fn) << BIT_LAYOUT.FACE_SHIFT;
-  id |= (BigInt(resolution) & 0x0fn) << BIT_LAYOUT.RES_SHIFT;
-  id |= (morton & BIT_LAYOUT.MORTON_MASK) << BIT_LAYOUT.MORTON_SHIFT;
+  id |= BigInt(face) << BIT_LAYOUT.FACE_SHIFT;
+  id |= BigInt(resolution) << BIT_LAYOUT.RES_SHIFT;
+  id |= morton << BIT_LAYOUT.MORTON_SHIFT;
   return id;
 }
 
 /**
  * Decodes a 64-bit TriHexId into its component fields.
- * Returns face, resolution, and morton code.
+ * Validates input and returns face, resolution, and morton code.
  */
-export function unpackTriHexId(id: TriHexId) {
+export function unpackTriHexId(id: TriHexId): {
+  face: number;
+  resolution: number;
+  morton: bigint;
+  dualSector: number;
+  topoCluster: number;
+} {
+  validateCellId(id);
   return {
     face: Number((id >> BIT_LAYOUT.FACE_SHIFT) & 0x1fn),
     resolution: Number((id >> BIT_LAYOUT.RES_SHIFT) & 0x0fn),
-    morton: (id >> BIT_LAYOUT.MORTON_SHIFT) & BIT_LAYOUT.MORTON_MASK,
+    morton: id & BIT_LAYOUT.MORTON_MASK,
     dualSector: 0,
     topoCluster: 0,
   };
@@ -60,7 +73,6 @@ export function barycentricToMorton(
   let morton = 0n;
 
   for (let r = 0; r < resolution; r++) {
-    // Relative coordinates in current (a, b, c)
     const e1: Point2D = [b[0] - a[0], b[1] - a[1]];
     const e2: Point2D = [c[0] - a[0], c[1] - a[1]];
     const d: Point2D = [u - a[0], v - a[1]];
@@ -102,7 +114,7 @@ export function barycentricToMorton(
 }
 
 /**
- * Reconstruct the 3 corners in barycentric coordinates for a given morton code and resolution
+ * Reconstructs the 3 corners in barycentric coordinates for a given Morton code and resolution.
  */
 export function mortonToCorners(
   morton: bigint,
@@ -146,8 +158,11 @@ export function cellToParent(id: TriHexId, targetResolution?: number): TriHexId 
   const { face, resolution, morton } = unpackTriHexId(id);
   const targetRes = targetResolution ?? resolution - 1;
 
-  if (targetRes < 0 || targetRes > resolution) {
-    throw new Error(`Target resolution ${targetRes} must be between 0 and current resolution ${resolution}`);
+  validateResolution(targetRes);
+  if (targetRes > resolution) {
+    throw new RangeError(
+      `Target resolution ${targetRes} must be <= current resolution ${resolution}`
+    );
   }
 
   const diff = BigInt(resolution - targetRes);
@@ -165,9 +180,10 @@ export function cellToParent(id: TriHexId, targetResolution?: number): TriHexId 
 export function cellToChildrenRange(id: TriHexId, targetResolution: number): CellRange {
   const { face, resolution, morton } = unpackTriHexId(id);
 
-  if (targetResolution < resolution || targetResolution > BIT_LAYOUT.MAX_RESOLUTION) {
-    throw new Error(
-      `Target resolution ${targetResolution} must be >= current resolution ${resolution} and <= ${BIT_LAYOUT.MAX_RESOLUTION}`
+  validateResolution(targetResolution);
+  if (targetResolution < resolution) {
+    throw new RangeError(
+      `Target resolution ${targetResolution} must be >= current resolution ${resolution}`
     );
   }
 
@@ -180,6 +196,21 @@ export function cellToChildrenRange(id: TriHexId, targetResolution: number): Cel
     start: packTriHexId(face, targetResolution, startMorton),
     end: packTriHexId(face, targetResolution, endMorton),
   };
+}
+
+/**
+ * Enumerates all immediate child cells at targetResolution (defaults to resolution + 1).
+ */
+export function cellToChildren(id: TriHexId, targetResolution?: number): TriHexId[] {
+  const { face, resolution } = unpackTriHexId(id);
+  const targetRes = targetResolution ?? resolution + 1;
+  const range = cellToChildrenRange(id, targetRes);
+
+  const children: TriHexId[] = [];
+  for (let childId = range.start; childId <= range.end; childId++) {
+    children.push(childId);
+  }
+  return children;
 }
 
 /**
@@ -196,7 +227,7 @@ export function cellToLatLng(id: TriHexId): GeoCoord {
 }
 
 /**
- * Returns the 3 boundary vertices of the triangular cell
+ * Returns the 3 boundary vertices of the triangular cell on the unit sphere
  */
 export function cellToBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord] {
   const { face, resolution, morton } = unpackTriHexId(id);

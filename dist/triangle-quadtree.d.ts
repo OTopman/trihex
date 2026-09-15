@@ -1,13 +1,13 @@
 import { CellRange, GeoCoord, TriHexId } from './types';
-type Point2D = [number, number];
+export type Point2D = [number, number];
 /**
- * Encodes face, resolution, and morton code into a 64-bit TriHexId (63-bit non-negative).
- * Optional dualSector and topoCluster are accepted for backward compatibility.
+ * Encodes face, resolution, and Morton code into a 64-bit TriHexId (strictly 63-bit non-negative).
+ * Performs strict validation and rejects invalid inputs without masking.
  */
 export declare function packTriHexId(face: number, resolution: number, morton: bigint, _dualSector?: number, _topoCluster?: number): TriHexId;
 /**
  * Decodes a 64-bit TriHexId into its component fields.
- * Returns face, resolution, and morton code.
+ * Validates input and returns face, resolution, and morton code.
  */
 export declare function unpackTriHexId(id: TriHexId): {
     face: number;
@@ -25,7 +25,7 @@ export declare function barycentricToMorton(u: number, v: number, resolution: nu
     corners: [Point2D, Point2D, Point2D];
 };
 /**
- * Reconstruct the 3 corners in barycentric coordinates for a given morton code and resolution
+ * Reconstructs the 3 corners in barycentric coordinates for a given Morton code and resolution.
  */
 export declare function mortonToCorners(morton: bigint, resolution: number): [Point2D, Point2D, Point2D];
 /**
@@ -40,11 +40,14 @@ export declare function cellToParent(id: TriHexId, targetResolution?: number): T
  */
 export declare function cellToChildrenRange(id: TriHexId, targetResolution: number): CellRange;
 /**
+ * Enumerates all immediate child cells at targetResolution (defaults to resolution + 1).
+ */
+export declare function cellToChildren(id: TriHexId, targetResolution?: number): TriHexId[];
+/**
  * Returns the center geographic coordinates (lat, lng) of a TriHex cell
  */
 export declare function cellToLatLng(id: TriHexId): GeoCoord;
 /**
- * Returns the 3 boundary vertices of the triangular cell
+ * Returns the 3 boundary vertices of the triangular cell on the unit sphere
  */
 export declare function cellToBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord];
-export {};

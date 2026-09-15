@@ -1,4 +1,4 @@
-import { EffectiveDistanceParams, GeoCoord, TriHexId } from './types';
+import { EffectiveDistanceParams, TriHexId } from './types';
 /**
  * External registry for Road Network Topology Partition Clusters.
  *
@@ -33,10 +33,7 @@ export declare function withTopologyCluster(id: TriHexId, clusterId: number, reg
  * Checks if two cells are within the same physical road network partition cluster.
  */
 export declare function isSameCluster(idA: TriHexId, idB: TriHexId, registry?: TopologyPartitionRegistry): boolean;
-/**
- * Calculates great-circle geodesic distance in meters using Haversine formula
- */
-export declare function geodesicDistance(coordA: GeoCoord, coordB: GeoCoord): number;
+export { geodesicDistance } from './icosahedron';
 /**
  * Computes the topology-aware effective distance between two cells.
  * Incorporates geographic geodesic distance plus network cross-barrier penalties

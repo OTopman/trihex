@@ -1,3 +1,4 @@
+import { cellDisk, getCellNeighbors } from './adjacency';
 import { compactCells, uncompactCells } from './compaction';
 import {
   DispatchEngine,
@@ -13,17 +14,20 @@ import {
   hexDualToGeoJSON,
 } from './geojson';
 import {
-  cellDisk,
-  getCellNeighbors,
+  getHexDual,
   getHexDualBoundary,
   getHexNeighbors,
+  getResolutionDualCells,
   hexRing,
 } from './hex-dual';
-import { geoToVector3D, projectToFace } from './icosahedron';
+import {
+  geodesicDistance,
+  geoToVector3D,
+  projectToFace,
+} from './icosahedron';
 import {
   defaultTopologyRegistry,
   effectiveDistance,
-  geodesicDistance,
   getTopologyCluster,
   isSameCluster,
   setTopologyCluster,
@@ -34,6 +38,7 @@ import {
   getResolutionCellRadius,
   lineStringToCells,
   polygonToCells,
+  RasterizePolygonOptions,
 } from './rasterization';
 import {
   bigIntReplacer,
@@ -44,6 +49,7 @@ import {
 import {
   barycentricToMorton,
   cellToBoundary,
+  cellToChildren,
   cellToChildrenRange,
   cellToLatLng,
   cellToParent,
@@ -51,26 +57,31 @@ import {
   unpackTriHexId,
 } from './triangle-quadtree';
 import {
-  BIT_LAYOUT,
   CellRange,
   EffectiveDistanceParams,
   GeoCoord,
-  TriHexId,
+  HexDual,
+  TriHexId
 } from './types';
+import {
+  validateCoordinates,
+  validateResolution
+} from './validation';
 
 /**
- * TriHex: Unified Tri-Hex Metric Spatial Indexing Engine
+ * TriHex: Unified 64-bit Discrete Global Grid System & Mobility Spatial Engine
+ *
+ * Provides:
+ *  1. Exact 1:4 hierarchical triangular quadtree on the spherical icosahedron.
+ *  2. Genuine spherical Voronoi dual (hexagonal tiling with 12 pentagonal singularities).
+ *  3. Exact 1D database B-Tree descendant range intervals (100% density, zero false positives).
+ *  4. Storage & database independence: Zero runtime database dependencies.
+ *  5. Clean separation of spatial indexing and mobility dispatch architecture.
  */
 export class TriHex {
   /**
    * Convert geographic coordinates (latitude, longitude) to a 64-bit TriHexId
    * at the specified resolution (0 to 15).
-   *
-   * Validates:
-   *  - lat/lng must be finite numbers
-   *  - lat in [-90, 90], lng in [-180, 180]
-   *  - resolution in [0, 15]
-   *  - topoCluster in [0, 4095]
    */
   public static latLngToCell(
     lat: number,
@@ -78,28 +89,8 @@ export class TriHex {
     resolution: number,
     topoCluster = 0
   ): TriHexId {
-    if (
-      typeof lat !== 'number' ||
-      typeof lng !== 'number' ||
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lng)
-    ) {
-      throw new TypeError(
-        `Coordinates must be finite numbers. Received lat=${lat}, lng=${lng}`
-      );
-    }
-
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      throw new RangeError(
-        `Coordinates out of bounds: lat=${lat} (must be in [-90, 90]), lng=${lng} (must be in [-180, 180])`
-      );
-    }
-
-    if (!Number.isInteger(resolution) || resolution < 0 || resolution > BIT_LAYOUT.MAX_RESOLUTION) {
-      throw new RangeError(
-        `Resolution ${resolution} is invalid. Must be an integer between 0 and ${BIT_LAYOUT.MAX_RESOLUTION}`
-      );
-    }
+    validateCoordinates(lat, lng);
+    validateResolution(resolution);
 
     if (!Number.isInteger(topoCluster) || topoCluster < 0 || topoCluster > 4095) {
       throw new RangeError(
@@ -120,28 +111,16 @@ export class TriHex {
   }
 
   /**
-   * Returns the center geographic coordinates (lat, lng) of a cell
+   * Returns the center geographic coordinates (lat, lng) of a triangular cell
    */
   public static cellToLatLng(id: TriHexId): GeoCoord {
-    if (typeof id !== 'bigint') {
-      throw new TypeError(`Expected BigInt for TriHexId, received ${typeof id}`);
-    }
-    if (!isValidCell(id)) {
-      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
-    }
     return cellToLatLng(id);
   }
 
   /**
-   * Returns the 3 boundary vertices of the triangular cell
+   * Returns the 3 spherical boundary vertices of the triangular cell
    */
   public static cellToBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord] {
-    if (typeof id !== 'bigint') {
-      throw new TypeError(`Expected BigInt for TriHexId, received ${typeof id}`);
-    }
-    if (!isValidCell(id)) {
-      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
-    }
     return cellToBoundary(id);
   }
 
@@ -149,13 +128,14 @@ export class TriHex {
    * Returns the parent cell at a coarser resolution using exact bit-shift
    */
   public static cellToParent(id: TriHexId, targetResolution?: number): TriHexId {
-    if (typeof id !== 'bigint') {
-      throw new TypeError(`Expected BigInt for TriHexId, received ${typeof id}`);
-    }
-    if (!isValidCell(id)) {
-      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
-    }
     return cellToParent(id, targetResolution);
+  }
+
+  /**
+   * Returns all immediate child cells at targetResolution
+   */
+  public static cellToChildren(id: TriHexId, targetResolution?: number): TriHexId[] {
+    return cellToChildren(id, targetResolution);
   }
 
   /**
@@ -163,44 +143,62 @@ export class TriHex {
    * at a finer targetResolution for instant B-Tree SQL index scans.
    */
   public static cellToChildrenRange(id: TriHexId, targetResolution: number): CellRange {
-    if (!isValidCell(id)) {
-      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
-    }
     return cellToChildrenRange(id, targetResolution);
   }
 
-  /** Returns the three cells sharing an edge with this triangular cell. */
-  public static getCellNeighbors(id: TriHexId): TriHexId[] {
-    if (!isValidCell(id)) {
-      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
-    }
+  /**
+   * Returns the three cells sharing a complete edge with this triangular cell.
+   * Guarantees 100% reciprocal symmetry and edge sharing across icosahedron seams.
+   */
+  public static getCellNeighbors(id: TriHexId): [TriHexId, TriHexId, TriHexId] {
     return getCellNeighbors(id);
   }
 
   /**
-   * @deprecated This compatibility alias returns triangular edge neighbours,
-   * not six hexagonal Voronoi neighbours. Use getCellNeighbors.
+   * Returns the triangular edge-adjacency graph disk within radius k.
+   */
+  public static cellDisk(originId: TriHexId, radius: number): TriHexId[] {
+    return cellDisk(originId, radius);
+  }
+
+  /**
+   * Constructs the genuine spherical Voronoi dual cell (HexDual) for this cell.
+   * Returns 6 spherical circumcenter vertices for regular hexagons, and 5 for the 12 pentagonal singularities.
+   */
+  public static getHexDual(id: TriHexId): HexDual {
+    return getHexDual(id);
+  }
+
+  /**
+   * Returns the exact neighbor cells in the spherical Voronoi dual graph.
+   * Returns 6 neighbors for regular hexagons, and 5 for the 12 pentagonal singularities.
    */
   public static getHexNeighbors(id: TriHexId): TriHexId[] {
     return getHexNeighbors(id);
   }
 
-  /** Returns the triangular edge-adjacency graph disk within radius k. */
-  public static cellDisk(originId: TriHexId, radius: number): TriHexId[] {
-    if (!isValidCell(originId)) {
-      throw new RangeError(`Invalid TriHexId: 0x${originId.toString(16)}`);
-    }
-    return cellDisk(originId, radius);
+  /**
+   * Returns the exact spherical Voronoi boundary coordinates of the dual cell
+   * (6 vertices for regular hexagons, 5 vertices for pentagons).
+   */
+  public static getHexDualBoundary(id: TriHexId): GeoCoord[] {
+    return getHexDualBoundary(id);
   }
 
-  /** @deprecated This compatibility alias returns a triangular graph disk. */
+  /**
+   * Expands a breadth-first search on the hexagonal Voronoi dual graph up to radius k.
+   * Produces 7 cells at radius 1, and 19 cells at radius 2 for regular hexagonal regions.
+   */
   public static hexRing(originId: TriHexId, radius: number): TriHexId[] {
     return hexRing(originId, radius);
   }
 
-  /** @deprecated Returns the actual triangular boundary; no hexagonal dual exists. */
-  public static getHexDualBoundary(id: TriHexId): GeoCoord[] {
-    return getHexDualBoundary(id);
+  /**
+   * Returns all canonical spherical Voronoi dual cells at the given resolution.
+   * Total count is exactly 10 * 4^R + 2 (Euler characteristic).
+   */
+  public static getResolutionDualCells(resolution: number): TriHexId[] {
+    return getResolutionDualCells(resolution);
   }
 
   /**
@@ -288,7 +286,7 @@ export class TriHex {
   /**
    * Validates whether an input is a structurally sound 64-bit TriHexId
    */
-  public static isValidCell(input: TriHexId | string): boolean {
+  public static isValidCell(input: unknown): input is TriHexId {
     return isValidCell(input);
   }
 
@@ -325,6 +323,7 @@ export class TriHex {
 
   /**
    * Rasterizes a polyline route into an ordered sequence of contiguous TriHex cells
+   * using spherical great-circle interpolation (Slerp).
    */
   public static lineStringToCells(
     coordinates: GeoCoord[],
@@ -335,14 +334,14 @@ export class TriHex {
   }
 
   /**
-   * Fills an arbitrary geographic polygon with all enclosing TriHex cells
+   * Fills an arbitrary geographic polygon (with optional holes) with enclosing TriHex cells.
    */
   public static polygonToCells(
-    coordinates: GeoCoord[],
+    coordinates: GeoCoord[] | GeoCoord[][],
     resolution: number,
-    topoCluster = 0
+    options?: RasterizePolygonOptions | number
   ): TriHexId[] {
-    return polygonToCells(coordinates, resolution, topoCluster);
+    return polygonToCells(coordinates, resolution, options);
   }
 
   /**
@@ -353,14 +352,14 @@ export class TriHex {
   }
 
   /**
-   * Compacts a set of cells by hierarchically merging 4-sibling clusters
+   * Compacts a set of cells by hierarchically merging 4-sibling clusters with deterministic sorting.
    */
   public static compactCells(cells: TriHexId[]): TriHexId[] {
     return compactCells(cells);
   }
 
   /**
-   * Expands compacted cells down to a uniform target resolution
+   * Expands compacted cells down to a uniform target resolution.
    */
   public static uncompactCells(cells: TriHexId[], targetResolution: number): TriHexId[] {
     return uncompactCells(cells, targetResolution);
@@ -370,14 +369,11 @@ export class TriHex {
    * Unpack a 64-bit TriHexId into its individual components
    */
   public static unpack(id: TriHexId) {
-    if (!isValidCell(id)) {
-      throw new RangeError(`Invalid TriHexId: 0x${id.toString(16)}`);
-    }
     return unpackTriHexId(id);
   }
 
   /**
-   * Pack component fields into a 64-bit TriHexId (pure 63-bit non-negative)
+   * Pack component fields into a 64-bit TriHexId (strictly 63-bit non-negative)
    */
   public static pack(
     face: number,
@@ -394,7 +390,7 @@ export class TriHex {
   }
 
   /**
-   * Creates an instance of the 2-Tier Mobility Dispatch Engine
+   * Creates an instance of the Multi-Tier Mobility Dispatch Engine
    */
   public static createDispatchEngine(options?: DispatchEngineOptions): DispatchEngine {
     return new DispatchEngine(options);
@@ -402,14 +398,20 @@ export class TriHex {
 }
 
 // Re-export all sub-modules and types
+export * from './adjacency';
+export * from './candidate-recall';
 export * from './compaction';
+export * from './constants';
 export * from './dispatch';
 export * from './geojson';
 export * from './hex-dual';
 export * from './icosahedron';
 export * from './network-metric';
 export * from './rasterization';
+export * from './routing';
 export * from './serialization';
+export * from './topology';
 export * from './triangle-quadtree';
 export * from './types';
+export * from './validation';
 export default TriHex;

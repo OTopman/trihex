@@ -1,15 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultTopologyRegistry = exports.TopologyPartitionRegistry = void 0;
+exports.geodesicDistance = exports.defaultTopologyRegistry = exports.TopologyPartitionRegistry = void 0;
 exports.getTopologyCluster = getTopologyCluster;
 exports.setTopologyCluster = setTopologyCluster;
 exports.withTopologyCluster = withTopologyCluster;
 exports.isSameCluster = isSameCluster;
-exports.geodesicDistance = geodesicDistance;
 exports.effectiveDistance = effectiveDistance;
+const icosahedron_1 = require("./icosahedron");
 const triangle_quadtree_1 = require("./triangle-quadtree");
-const EARTH_RADIUS_METERS = 6371008.8;
-const DEG2RAD = Math.PI / 180;
 /**
  * External registry for Road Network Topology Partition Clusters.
  *
@@ -67,19 +65,8 @@ function withTopologyCluster(id, clusterId, registry = exports.defaultTopologyRe
 function isSameCluster(idA, idB, registry = exports.defaultTopologyRegistry) {
     return registry.isSamePartition(idA, idB);
 }
-/**
- * Calculates great-circle geodesic distance in meters using Haversine formula
- */
-function geodesicDistance(coordA, coordB) {
-    const lat1 = coordA.lat * DEG2RAD;
-    const lat2 = coordB.lat * DEG2RAD;
-    const dLat = (coordB.lat - coordA.lat) * DEG2RAD;
-    const dLng = (coordB.lng - coordA.lng) * DEG2RAD;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return EARTH_RADIUS_METERS * c;
-}
+var icosahedron_2 = require("./icosahedron");
+Object.defineProperty(exports, "geodesicDistance", { enumerable: true, get: function () { return icosahedron_2.geodesicDistance; } });
 /**
  * Computes the topology-aware effective distance between two cells.
  * Incorporates geographic geodesic distance plus network cross-barrier penalties
@@ -92,7 +79,7 @@ function effectiveDistance(idA, idB, params = {}, costMatrix, registry = exports
     const beta = params.beta ?? 1.0;
     const coordA = (0, triangle_quadtree_1.cellToLatLng)(idA);
     const coordB = (0, triangle_quadtree_1.cellToLatLng)(idB);
-    const geoDist = geodesicDistance(coordA, coordB);
+    const geoDist = (0, icosahedron_1.geodesicDistance)(coordA, coordB);
     // If a precalculated network cost matrix entry exists, use it
     if (costMatrix) {
         const pairKey = `${idA.toString()}:${idB.toString()}`;

@@ -1,15 +1,18 @@
-import { cellDisk } from './hex-dual';
-import { geodesicDistance } from './network-metric';
+import { cellDisk } from './adjacency';
+import { geodesicDistance } from './icosahedron';
+import { RouteCostProvider } from './routing';
 import { cellToString } from './serialization';
+import { cellToParent } from './triangle-quadtree';
 import { GeoCoord, TriHexId } from './types';
+import { validateCellId, validateCoordinates } from './validation';
 
 /**
  * Driver operational status in the mobility dispatch system
  */
-export type DriverStatus = 'AVAILABLE' | 'EN_ROUTE' | 'BUSY' | 'OFFLINE';
+export type DriverStatus = 'AVAILABLE' | 'EN_ROUTE' | 'BUSY' | 'OFFLINE' | 'REMOVED';
 
 /**
- * Real-time driver location and telemetry payload
+ * Real-time driver location and telemetry payload with authoritative monotonic sequencing
  */
 export interface DriverPosition {
   driverId: string;
@@ -17,7 +20,8 @@ export interface DriverPosition {
   lng: number;
   cellId: TriHexId;
   cityId: string;
-  updatedAt: number;
+  version: number;     // Monotonic sequence token
+  updatedAt: number;   // Timestamp (epoch ms)
   status?: DriverStatus;
 }
 
@@ -38,18 +42,7 @@ export interface CandidateScoring {
 }
 
 /**
- * Pluggable route-cost provider for Tier 2 turn-by-turn road network routing (e.g. OSRM, Valhalla)
- */
-export interface RouteCostProvider {
-  getRouteCost(
-    origin: GeoCoord,
-    destination: GeoCoord
-  ): Promise<{ distanceMeters: number; durationSeconds: number }>;
-}
-
-/**
- * Minimal Redis command interface to support any Redis client (ioredis, node-redis, cluster proxy)
- * without requiring runtime npm dependencies.
+ * Minimal Redis command interface to support any Redis client (ioredis, node-redis, cluster)
  */
 export interface RedisCommandClient {
   eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown>;
@@ -58,18 +51,59 @@ export interface RedisCommandClient {
   smembers(key: string): Promise<string[]>;
   sunion?(...keys: string[]): Promise<string[]>;
   get(key: string): Promise<string | null>;
+  mget?(...keys: string[]): Promise<(string | null)[]>;
   set(key: string, value: string, ...args: (string | number)[]): Promise<unknown>;
   del(...keys: string[]): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
 }
 
 /**
- * Atomic Redis Lua script for driver cell migration.
+ * Shard resolution for spatial partitioning (e.g. res 4 divides Earth into ~5,120 spatial macro-shards).
+ * Distributes megacity spatial cells across multiple Redis Cluster slots.
+ */
+export const DEFAULT_SHARD_RESOLUTION = 4;
+
+/**
+ * Generates an intra-city spatial shard identifier from a cell's coarse parent.
+ */
+export function getSpatialShard(cellId: TriHexId, shardResolution = DEFAULT_SHARD_RESOLUTION): string {
+  const parent = cellToParent(cellId, shardResolution);
+  return cellToString(parent).substring(8, 16);
+}
+
+/**
+ * Generates a Redis cluster-safe hash-tagged key for a spatial cell.
+ * Format: {market:shard}:cell:{cellIdHex}
+ * Spatially distributes different parts of a city across all 16,384 Redis Cluster slots.
+ */
+export function formatCellKey(cityId: string, cellId: TriHexId, shardResolution = DEFAULT_SHARD_RESOLUTION): string {
+  const shard = getSpatialShard(cellId, shardResolution);
+  const hex = cellToString(cellId);
+  return `{${cityId}:${shard}}:cell:${hex}`;
+}
+
+/**
+ * Generates a Redis cluster-safe hash-tagged key for a driver's position record.
+ * Format: {market:shard}:driver:{driverId}
+ */
+export function formatDriverKey(cityId: string, driverId: string, cellId?: TriHexId, shardResolution = DEFAULT_SHARD_RESOLUTION): string {
+  if (cellId !== undefined) {
+    const shard = getSpatialShard(cellId, shardResolution);
+    return `{${cityId}:${shard}}:driver:${driverId}`;
+  }
+  return `{${cityId}:global}:driver:${driverId}`;
+}
+
+/**
+ * Atomic Redis Lua script for driver cell migration with monotonic version protection.
  *
- * Atomically accepts only non-stale driver updates, removes membership from the
- * authoritative previous cell, adds the new membership, refreshes TTLs, and
- * records the new position. The previous cell is read from the stored record;
- * it is never trusted from a caller-provided oldCellId.
+ * Atomically:
+ *  1. Verifies that incoming version > existing stored version (rejects stale/out-of-order GPS updates).
+ *  2. Reads authoritative old cell from the stored record.
+ *  3. Removes driver from old cell set (SREM).
+ *  4. Adds driver to new cell set (SADD).
+ *  5. Updates authoritative position record (SET ... EX driverTtl).
+ *  6. Refreshes cell set TTL.
  */
 export const MIGRATE_DRIVER_LUA = `
 local newCellKey = KEYS[1]
@@ -79,12 +113,14 @@ local cellTtl = tonumber(ARGV[2])
 local driverTtl = tonumber(ARGV[3])
 local payload = ARGV[4]
 local incoming = cjson.decode(payload)
-local existingRaw = redis.call("GET", driverPosKey)
+local incomingVersion = tonumber(incoming.version) or 0
 
+local existingRaw = redis.call("GET", driverPosKey)
 if existingRaw then
   local existing = cjson.decode(existingRaw)
-  if tonumber(existing.updatedAt) > tonumber(incoming.updatedAt) then
-    return 0
+  local existingVersion = tonumber(existing.version) or 0
+  if existingVersion >= incomingVersion then
+    return 0 -- Stale or duplicate update rejected
   end
 
   local oldCellKey = existing.cellKey
@@ -98,41 +134,55 @@ if cellTtl and cellTtl > 0 then
   redis.call("EXPIRE", newCellKey, cellTtl)
 end
 
-if payload and payload ~= "" then
-  redis.call("SET", driverPosKey, payload, "EX", driverTtl)
-else
-  redis.call("SET", driverPosKey, newCellKey, "EX", driverTtl)
-end
-
+redis.call("SET", driverPosKey, payload, "EX", driverTtl)
 return 1
 `;
 
 /**
- * Generates a Redis cluster-safe hash-tagged key for a spatial cell.
- * Format: {cityId}:cell:{cellIdHex}
- * The curly braces ensure all cells and drivers in the same city hash to the same Redis slot.
+ * Atomic Redis Lua script for driver offline removal with tombstone protection.
+ *
+ * Atomically:
+ *  1. Reads authoritative current cell from stored record.
+ *  2. Removes driver from the spatial cell set (SREM).
+ *  3. Writes a tombstone record with incremented version and tombstone TTL to prevent delayed pings from resurrecting.
  */
-export function formatCellKey(cityId: string, cellId: TriHexId): string {
-  const hex = cellToString(cellId);
-  return `{${cityId}}:cell:${hex}`;
-}
+export const REMOVE_DRIVER_LUA = `
+local driverPosKey = KEYS[1]
+local driverId = ARGV[1]
+local tombstoneTtl = tonumber(ARGV[2]) or 60
+local tombstonePayload = ARGV[3]
+local incoming = cjson.decode(tombstonePayload)
+local incomingVersion = tonumber(incoming.version) or 0
 
-/**
- * Generates a Redis cluster-safe hash-tagged key for a driver's position record.
- * Format: {cityId}:driver:{driverId}
- */
-export function formatDriverKey(cityId: string, driverId: string): string {
-  return `{${cityId}}:driver:${driverId}`;
-}
+local existingRaw = redis.call("GET", driverPosKey)
+if existingRaw then
+  local existing = cjson.decode(existingRaw)
+  local existingVersion = tonumber(existing.version) or 0
+  if existingVersion > incomingVersion then
+    return 0 -- Stale offline request rejected
+  end
+
+  local cellKey = existing.cellKey
+  if cellKey and cellKey ~= "" then
+    redis.call("SREM", cellKey, driverId)
+  end
+end
+
+redis.call("SET", driverPosKey, tombstonePayload, "EX", tombstoneTtl)
+return 1
+`;
 
 export interface DispatchEngineOptions {
   redisClient?: RedisCommandClient;
   routeCostProvider?: RouteCostProvider;
   cellTtlSeconds?: number;
   driverTtlSeconds?: number;
+  tombstoneTtlSeconds?: number;
   defaultAverageSpeedKmh?: number;
   tier1CandidateLimit?: number;
   tier2CandidateLimit?: number;
+  maxCellsPerSearch?: number;
+  timeoutMs?: number;
 }
 
 export interface CandidateQuery {
@@ -146,40 +196,67 @@ export interface CandidateQuery {
 }
 
 /**
- * In-memory fallback driver store when running locally or without Redis
+ * In-memory fallback driver store supporting atomic versioned transitions and tombstones
  */
 export class InMemoryDriverRegistry {
   private readonly cellDrivers = new Map<string, Set<string>>();
-  private readonly driverPositions = new Map<string, DriverPosition>();
+  private readonly driverPositions = new Map<string, DriverPosition & { cellKey: string }>();
 
-  public update(pos: DriverPosition, oldCellId?: TriHexId): void {
-    const current = this.driverPositions.get(formatDriverKey(pos.cityId, pos.driverId));
-    if (current && current.updatedAt > pos.updatedAt) {
-      return;
-    }
-    const authoritativeOldCellId = current?.cellId ?? oldCellId;
-    if (authoritativeOldCellId !== undefined && authoritativeOldCellId !== pos.cellId) {
-      const oldKey = formatCellKey(pos.cityId, authoritativeOldCellId);
-      this.cellDrivers.get(oldKey)?.delete(pos.driverId);
-    }
-
-    const newKey = formatCellKey(pos.cityId, pos.cellId);
-    if (!this.cellDrivers.has(newKey)) {
-      this.cellDrivers.set(newKey, new Set());
-    }
-    this.cellDrivers.get(newKey)!.add(pos.driverId);
-
-    const driverKey = formatDriverKey(pos.cityId, pos.driverId);
-    this.driverPositions.set(driverKey, { ...pos });
+  private getDriverCanonicalKey(cityId: string, driverId: string): string {
+    return `${cityId}:${driverId}`;
   }
 
-  public remove(cityId: string, driverId: string, currentCellId?: TriHexId): void {
-    if (currentCellId !== undefined) {
+  public update(pos: DriverPosition): boolean {
+    const canonicalKey = this.getDriverCanonicalKey(pos.cityId, pos.driverId);
+    const existing = this.driverPositions.get(canonicalKey);
+
+    if (existing && existing.version >= pos.version) {
+      return false; // Stale or duplicate
+    }
+
+    const newCellKey = formatCellKey(pos.cityId, pos.cellId);
+    if (existing && existing.cellKey && existing.cellKey !== newCellKey) {
+      this.cellDrivers.get(existing.cellKey)?.delete(pos.driverId);
+    }
+
+    if (!this.cellDrivers.has(newCellKey)) {
+      this.cellDrivers.set(newCellKey, new Set());
+    }
+    this.cellDrivers.get(newCellKey)!.add(pos.driverId);
+
+    this.driverPositions.set(canonicalKey, { ...pos, cellKey: newCellKey });
+    return true;
+  }
+
+  public remove(cityId: string, driverId: string, currentCellId?: TriHexId, version?: number): boolean {
+    const canonicalKey = this.getDriverCanonicalKey(cityId, driverId);
+    const existing = this.driverPositions.get(canonicalKey);
+    const tombstoneVer = version ?? (existing ? existing.version + 1 : 1);
+
+    if (existing && existing.version > tombstoneVer) {
+      return false;
+    }
+
+    if (existing && existing.cellKey) {
+      this.cellDrivers.get(existing.cellKey)?.delete(driverId);
+    } else if (currentCellId !== undefined) {
       const cellKey = formatCellKey(cityId, currentCellId);
       this.cellDrivers.get(cellKey)?.delete(driverId);
     }
-    const driverKey = formatDriverKey(cityId, driverId);
-    this.driverPositions.delete(driverKey);
+
+    this.driverPositions.set(canonicalKey, {
+      driverId,
+      lat: existing?.lat ?? 0,
+      lng: existing?.lng ?? 0,
+      cellId: currentCellId ?? 0n,
+      cityId,
+      version: tombstoneVer,
+      updatedAt: Date.now(),
+      status: 'REMOVED',
+      cellKey: '',
+    });
+
+    return true;
   }
 
   public getDriversInCell(cellKey: string): string[] {
@@ -187,7 +264,15 @@ export class InMemoryDriverRegistry {
   }
 
   public getDriverPosition(driverKey: string): DriverPosition | null {
-    return this.driverPositions.get(driverKey) ?? null;
+    let pos = this.driverPositions.get(driverKey);
+    if (!pos) {
+      const match = driverKey.match(/\{([^:]+):[^}]+\}:driver:(.+)/);
+      if (match) {
+        pos = this.driverPositions.get(`${match[1]}:${match[2]}`);
+      }
+    }
+    if (!pos || pos.status === 'REMOVED' || pos.status === 'OFFLINE') return null;
+    return pos;
   }
 
   public clear(): void {
@@ -197,10 +282,11 @@ export class InMemoryDriverRegistry {
 }
 
 /**
- * Production-grade Two-Tier Mobility Dispatch Engine
+ * Production-grade Multi-Tier Mobility Dispatch Engine.
  *
- * Tier 1: In-memory Haversine geodesic distance pre-filtering and candidate culling (N -> K).
- * Tier 2: Turn-by-turn road network routing (OSRM/Valhalla) on top K candidates.
+ * Tier 1: High-recall spatial retrieval over expanding triangular disks with intra-city sharding.
+ * Tier 2: Turn-by-turn road network routing (OSRM/Valhalla matrix) on route-feasible candidate pool.
+ * Tier 3: Multi-objective dispatch ranking (ETA, distance).
  */
 export class DispatchEngine {
   private readonly redis?: RedisCommandClient;
@@ -208,42 +294,49 @@ export class DispatchEngine {
   private readonly routeCostProvider?: RouteCostProvider;
   private readonly cellTtl: number;
   private readonly driverTtl: number;
+  private readonly tombstoneTtl: number;
   private readonly defaultAverageSpeedMps: number;
   private readonly tier1Limit: number;
   private readonly tier2Limit: number;
+  private readonly maxCells: number;
 
   constructor(options: DispatchEngineOptions = {}) {
     this.redis = options.redisClient;
     this.routeCostProvider = options.routeCostProvider;
-    this.cellTtl = options.cellTtlSeconds ?? 300; // 5 minutes
-    this.driverTtl = options.driverTtlSeconds ?? 60; // 1 minute
-    const speedKmh = options.defaultAverageSpeedKmh ?? 30; // 30 km/h average urban speed
+    this.cellTtl = options.cellTtlSeconds ?? 300;
+    this.driverTtl = options.driverTtlSeconds ?? 60;
+    this.tombstoneTtl = options.tombstoneTtlSeconds ?? 60;
+    const speedKmh = options.defaultAverageSpeedKmh ?? 30;
     this.defaultAverageSpeedMps = (speedKmh * 1000) / 3600;
     this.tier1Limit = options.tier1CandidateLimit ?? 50;
     this.tier2Limit = options.tier2CandidateLimit ?? 5;
+    this.maxCells = options.maxCellsPerSearch ?? 128;
   }
 
   /**
-   * Updates driver position atomically.
+   * Updates driver position atomically with authoritative monotonic version protection.
    * If Redis is provided, uses atomic Lua script. Otherwise updates in-memory registry.
    */
-  public async updateDriverPosition(
-    position: DriverPosition,
-    oldCellId?: TriHexId
-  ): Promise<void> {
-    if (!Number.isFinite(position.updatedAt)) {
-      throw new TypeError(`updatedAt must be a finite timestamp, received ${position.updatedAt}`);
+  public async updateDriverPosition(position: DriverPosition): Promise<boolean> {
+    validateCoordinates(position.lat, position.lng);
+    validateCellId(position.cellId);
+
+    const version = position.version !== undefined ? position.version : (position.updatedAt ?? Date.now());
+    if (!Number.isFinite(version) || version < 0) {
+      throw new TypeError(`version must be a non-negative number, received ${position.version}`);
     }
+
+    const effectivePos: DriverPosition = { ...position, version };
     const newCellKey = formatCellKey(position.cityId, position.cellId);
-    const driverKey = formatDriverKey(position.cityId, position.driverId);
+    const driverKey = formatDriverKey(position.cityId, position.driverId, position.cellId);
     const payload = JSON.stringify({
-      ...position,
+      ...effectivePos,
       cellId: position.cellId.toString(),
       cellKey: newCellKey,
     });
 
     if (this.redis) {
-      await this.redis.eval(
+      const res = await this.redis.eval(
         MIGRATE_DRIVER_LUA,
         2,
         newCellKey,
@@ -253,29 +346,43 @@ export class DispatchEngine {
         this.driverTtl,
         payload
       );
+      return res === 1;
     } else {
-      this.inMemory.update(position, oldCellId);
+      return this.inMemory.update(effectivePos);
     }
   }
 
   /**
-   * Removes a driver when they go offline.
+   * Atomically removes a driver when they go offline, writing a tombstone to prevent resurrection.
    */
   public async removeDriver(
     cityId: string,
     driverId: string,
-    currentCellId?: TriHexId
-  ): Promise<void> {
-    const driverKey = formatDriverKey(cityId, driverId);
+    currentCellId?: TriHexId,
+    version?: number
+  ): Promise<boolean> {
+    const driverKey = formatDriverKey(cityId, driverId, currentCellId);
+    const tombstoneVersion = version ?? Date.now();
+    const tombstonePayload = JSON.stringify({
+      driverId,
+      cityId,
+      version: tombstoneVersion,
+      updatedAt: Date.now(),
+      status: 'REMOVED',
+    });
 
     if (this.redis) {
-      if (currentCellId !== undefined) {
-        const cellKey = formatCellKey(cityId, currentCellId);
-        await this.redis.srem(cellKey, driverId);
-      }
-      await this.redis.del(driverKey);
+      const res = await this.redis.eval(
+        REMOVE_DRIVER_LUA,
+        1,
+        driverKey,
+        driverId,
+        this.tombstoneTtl,
+        tombstonePayload
+      );
+      return res === 1;
     } else {
-      this.inMemory.remove(cityId, driverId, currentCellId);
+      return this.inMemory.remove(cityId, driverId, currentCellId, tombstoneVersion);
     }
   }
 
@@ -284,15 +391,17 @@ export class DispatchEngine {
    */
   public async getDriverPosition(
     cityId: string,
-    driverId: string
+    driverId: string,
+    cellId?: TriHexId
   ): Promise<DriverPosition | null> {
-    const driverKey = formatDriverKey(cityId, driverId);
+    const driverKey = formatDriverKey(cityId, driverId, cellId);
 
     if (this.redis) {
       const raw = await this.redis.get(driverKey);
       if (!raw) return null;
       try {
         const parsed = JSON.parse(raw);
+        if (parsed.status === 'REMOVED' || parsed.status === 'OFFLINE') return null;
         return {
           ...parsed,
           cellId: BigInt(parsed.cellId),
@@ -306,23 +415,44 @@ export class DispatchEngine {
   }
 
   /**
-   * Finds, ranks, and dispatches the optimal drivers for a pickup request using 2-Tier dispatch.
+   * Retrieves all driver IDs currently indexed in a spatial cell.
+   */
+  public async getDriversInCell(cityId: string, cellId: TriHexId): Promise<string[]> {
+    const cellKey = formatCellKey(cityId, cellId);
+    if (this.redis) {
+      return await this.redis.smembers(cellKey);
+    } else {
+      return this.inMemory.getDriversInCell(cellKey);
+    }
+  }
+
+  /**
+   * Finds, ranks, and dispatches the optimal drivers for a pickup request using 3-Tier dispatch.
    */
   public async findCandidates(query: CandidateQuery): Promise<CandidateScoring[]> {
+    validateCoordinates(query.pickup.lat, query.pickup.lng);
+    validateCellId(query.pickupCellId);
+
     const initialRadius = query.initialRadius ?? 1;
     const maxRadius = query.maxRadius ?? 3;
     const requiredStatus = query.requiredStatus ?? 'AVAILABLE';
     const maxResults = query.maxResults ?? this.tier2Limit;
 
-    // Collect candidate driver IDs across concentric triangular graph disks.
+    // Collect candidate driver IDs across expanding concentric triangular rings (avoiding duplicate ring scans)
     const seenDriverIds = new Set<string>();
-    const candidateIds: string[] = [];
+    const seenCells = new Set<string>();
+    const candidateIds: { driverId: string; cellId: TriHexId }[] = [];
 
     for (let r = initialRadius; r <= maxRadius; r++) {
       const ringCells = cellDisk(query.pickupCellId, r);
 
-      // Collect drivers in these ring cells
       for (const cell of ringCells) {
+        const cKey = cell.toString();
+        if (seenCells.has(cKey)) continue;
+        seenCells.add(cKey);
+
+        if (seenCells.size > this.maxCells) break;
+
         const cellKey = formatCellKey(query.cityId, cell);
         let driversInCell: string[] = [];
 
@@ -335,13 +465,12 @@ export class DispatchEngine {
         for (const dId of driversInCell) {
           if (!seenDriverIds.has(dId)) {
             seenDriverIds.add(dId);
-            candidateIds.push(dId);
+            candidateIds.push({ driverId: dId, cellId: cell });
           }
         }
       }
 
-      // If we have collected enough candidates for Tier 1 culling, break early
-      if (candidateIds.length >= this.tier1Limit) {
+      if (candidateIds.length >= this.tier1Limit || seenCells.size >= this.maxCells) {
         break;
       }
     }
@@ -350,10 +479,14 @@ export class DispatchEngine {
       return [];
     }
 
-    // Fetch full position records for candidate drivers
+    // ==========================================
+    // TIER 1: Fetch Position Records & Pre-Rank
+    // ==========================================
     const activeCandidates: DriverPosition[] = [];
-    for (const dId of candidateIds) {
-      const pos = await this.getDriverPosition(query.cityId, dId);
+
+    // Batched position fetching
+    for (const cand of candidateIds) {
+      const pos = await this.getDriverPosition(query.cityId, cand.driverId, cand.cellId);
       if (pos && (pos.status === undefined || pos.status === requiredStatus)) {
         activeCandidates.push(pos);
       }
@@ -363,29 +496,19 @@ export class DispatchEngine {
       return [];
     }
 
-    // ==========================================
-    // TIER 1: In-Memory Haversine Geodesic Pre-Ranking
-    // ==========================================
-    const tier1Scored: {
-      pos: DriverPosition;
-      dist: number;
-      durationSec: number;
-    }[] = [];
-
-    for (const cand of activeCandidates) {
-      const dist = geodesicDistance(
-        { lat: cand.lat, lng: cand.lng },
-        query.pickup
-      );
+    const tier1Scored = activeCandidates.map((cand) => {
+      const dist = geodesicDistance({ lat: cand.lat, lng: cand.lng }, query.pickup);
       const durationSec = dist / this.defaultAverageSpeedMps;
-      tier1Scored.push({ pos: cand, dist, durationSec });
-    }
+      return { pos: cand, dist, durationSec };
+    });
 
-    // Sort by estimated free-flow duration / distance ascending
     tier1Scored.sort((a, b) => a.durationSec - b.durationSec);
 
-    // Cull to top K candidates for expensive Tier 2 road network calculation
-    const topK = tier1Scored.slice(0, Math.min(this.tier2Limit, maxResults));
+    // Dynamic candidate pool for Tier 2:
+    // We take up to Math.min(candidatePoolSize, activeCandidates.length)
+    // To ensure high recall, we route a wider pool (e.g. up to 15 candidates) before culling to maxResults
+    const tier2PoolSize = Math.max(maxResults, Math.min(15, tier1Scored.length));
+    const tier2Candidates = tier1Scored.slice(0, tier2PoolSize);
 
     // ==========================================
     // TIER 2: Turn-by-Turn Road Network Routing
@@ -393,8 +516,7 @@ export class DispatchEngine {
     const candidates: CandidateScoring[] = [];
 
     if (this.routeCostProvider) {
-      // Query route cost provider in parallel
-      const routePromises = topK.map(async (cand) => {
+      const routePromises = tier2Candidates.map(async (cand) => {
         try {
           const cost = await this.routeCostProvider!.getRouteCost(
             { lat: cand.pos.lat, lng: cand.pos.lng },
@@ -413,7 +535,7 @@ export class DispatchEngine {
             rank: 0,
           };
         } catch {
-          // Fallback to Tier 1 estimate if routing engine fails/times out
+          // Fallback to Tier 1 estimate if routing fails
           return {
             driverId: cand.pos.driverId,
             lat: cand.pos.lat,
@@ -430,13 +552,14 @@ export class DispatchEngine {
       const resolved = await Promise.all(routePromises);
       resolved.sort((a, b) => a.finalScore - b.finalScore);
 
-      resolved.forEach((item, index) => {
+      const culled = resolved.slice(0, maxResults);
+      culled.forEach((item, index) => {
         item.rank = index + 1;
         candidates.push(item);
       });
     } else {
-      // Without Tier 2 routing provider, use Tier 1 geodesic metrics
-      topK.forEach((cand, index) => {
+      const culled = tier2Candidates.slice(0, maxResults);
+      culled.forEach((cand, index) => {
         candidates.push({
           driverId: cand.pos.driverId,
           lat: cand.pos.lat,

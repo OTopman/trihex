@@ -64,8 +64,12 @@ function runEnterpriseTests() {
   const geojsonHex = TriHex.hexDualToGeoJSON(lagosCell);
   assert(geojsonHex.geometry.type === 'Polygon', 'Hex dual geometry must be Polygon');
   const hexRingCoords = geojsonHex.geometry.coordinates[0];
-  assert(hexRingCoords.length === 4, `Compatibility geometry must be a closed triangle, got ${hexRingCoords.length}`);
-  console.log(`  ✓ Compatibility geometry generated as a closed triangle`);
+  assert(hexRingCoords.length === 7, `Regular hexagon dual must have 7 coordinates (6 vertices + close), got ${hexRingCoords.length}`);
+  assert(
+    hexRingCoords[0][0] === hexRingCoords[6][0] && hexRingCoords[0][1] === hexRingCoords[6][1],
+    'First and last coordinate in closed hex ring must match'
+  );
+  console.log(`  ✓ Genuine Voronoi dual geometry generated as a closed hexagon (6 vertices + close)`);
 
   // FeatureCollection export
   const neighbors = TriHex.getCellNeighbors(lagosCell);

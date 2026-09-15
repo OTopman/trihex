@@ -1,7 +1,18 @@
-import { geoToVector3D, projectToFace } from './icosahedron';
+import {
+  geoToVector3D,
+  projectToFace,
+  slerp
+} from './icosahedron';
 import { defaultTopologyRegistry, geodesicDistance } from './network-metric';
-import { barycentricToMorton, packTriHexId } from './triangle-quadtree';
+import { barycentricToMorton, cellToBoundary, packTriHexId } from './triangle-quadtree';
 import { BIT_LAYOUT, GeoCoord, TriHexId } from './types';
+import { validateCoordinates, validateResolution } from './validation';
+
+export interface RasterizePolygonOptions {
+  mode?: 'intersects' | 'covers' | 'contains';
+  topoCluster?: number;
+  maxCells?: number;
+}
 
 /**
  * Approximate circumradius (in meters) of a micro-triangle at a given resolution (0 to 15)
@@ -13,8 +24,71 @@ export function getResolutionCellRadius(resolution: number): number {
 }
 
 /**
- * Rasterizes a polyline (sequence of waypoints) into an ordered sequence of contiguous TriHex cells.
- * Uses supercover step interpolation to ensure continuous cell connectivity with zero gaps.
+ * Point-in-polygon test with antimeridian normalization.
+ * Standard ray-casting crossing number algorithm.
+ */
+function isPointInRing(point: GeoCoord, ring: GeoCoord[]): boolean {
+  let inside = false;
+  const n = ring.length;
+  let pLng = point.lng;
+
+  // Check if ring crosses antimeridian
+  let crossesAntimeridian = false;
+  for (let i = 0; i < n - 1; i++) {
+    if (Math.abs(ring[i].lng - ring[i + 1].lng) > 180) {
+      crossesAntimeridian = true;
+      break;
+    }
+  }
+
+  const normRing = crossesAntimeridian
+    ? ring.map((p) => ({ lat: p.lat, lng: p.lng < 0 ? p.lng + 360 : p.lng }))
+    : ring;
+
+  if (crossesAntimeridian && pLng < 0) {
+    pLng += 360;
+  }
+
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = normRing[i].lng;
+    const yi = normRing[i].lat;
+    const xj = normRing[j].lng;
+    const yj = normRing[j].lat;
+
+    const intersect =
+      yi > point.lat !== yj > point.lat &&
+      pLng < ((xj - xi) * (point.lat - yi)) / (yj - yi) + xi;
+
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+/**
+ * Point-in-polygon test supporting outer boundary and interior exclusion holes.
+ */
+function isPointInPolygon(point: GeoCoord, rings: GeoCoord[][]): boolean {
+  if (rings.length === 0 || rings[0].length < 3) return false;
+
+  // Must be inside outer ring
+  if (!isPointInRing(point, rings[0])) {
+    return false;
+  }
+
+  // Must NOT be inside any hole (inner rings)
+  for (let h = 1; h < rings.length; h++) {
+    if (isPointInRing(point, rings[h])) {
+      return false; // Point is inside a hole
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Rasterizes a polyline route into an ordered sequence of contiguous TriHex cells.
+ * Uses great-circle spherical arc interpolation (Slerp) ensuring zero-gap topological continuity.
  */
 export function lineStringToCells(
   coordinates: GeoCoord[],
@@ -22,15 +96,17 @@ export function lineStringToCells(
   topoCluster = 0
 ): TriHexId[] {
   if (!Array.isArray(coordinates) || coordinates.length < 2) {
-    throw new Error('lineStringToCells requires an array of at least 2 GeoCoord waypoints');
+    throw new TypeError('lineStringToCells requires an array of at least 2 GeoCoord waypoints');
   }
-  if (resolution < 0 || resolution > BIT_LAYOUT.MAX_RESOLUTION) {
-    throw new Error(`Resolution ${resolution} must be between 0 and ${BIT_LAYOUT.MAX_RESOLUTION}`);
+  validateResolution(resolution);
+
+  for (const c of coordinates) {
+    validateCoordinates(c.lat, c.lng);
   }
 
   const cellRadius = getResolutionCellRadius(resolution);
-  // Step size: half the cell radius ensures dense supercover sampling
-  const stepMeters = Math.max(2, cellRadius * 0.5);
+  // Step size: half the cell radius ensures dense supercover sampling along great circle
+  const stepMeters = Math.max(2, cellRadius * 0.4);
 
   const result: TriHexId[] = [];
   let lastCell: TriHexId | null = null;
@@ -42,26 +118,19 @@ export function lineStringToCells(
     const dist = geodesicDistance(p1, p2);
     const steps = Math.max(1, Math.ceil(dist / stepMeters));
 
+    const v1 = geoToVector3D(p1.lat, p1.lng);
+    const v2 = geoToVector3D(p2.lat, p2.lng);
+
     for (let s = 0; s <= steps; s++) {
       if (s === 0 && i > 0) continue;
 
       const t = s / steps;
-      const lat = p1.lat + t * (p2.lat - p1.lat);
-      let lng = p1.lng + t * (p2.lng - p1.lng);
-
-      // Handle antimeridian crossing interpolation if points cross +/-180
-      if (Math.abs(p2.lng - p1.lng) > 180) {
-        const lng1 = p1.lng < 0 ? p1.lng + 360 : p1.lng;
-        const lng2 = p2.lng < 0 ? p2.lng + 360 : p2.lng;
-        let interpLng = lng1 + t * (lng2 - lng1);
-        if (interpLng > 180) interpLng -= 360;
-        lng = interpLng;
-      }
-
-      const vec = geoToVector3D(lat, lng);
-      const proj = projectToFace(vec);
+      // Spherical linear interpolation along true great circle
+      const v = slerp(v1, v2, t);
+      const proj = projectToFace(v);
       const { morton } = barycentricToMorton(proj.u, proj.v, resolution);
       const cellId = packTriHexId(proj.face, resolution, morton);
+
       if (topoCluster !== 0) {
         defaultTopologyRegistry.setCluster(cellId, topoCluster);
       }
@@ -77,55 +146,81 @@ export function lineStringToCells(
 }
 
 /**
- * Fills an arbitrary geographic polygon (geofence, administrative boundary)
- * with all enclosing TriHex cells at the specified resolution using scanline filling.
+ * Fills an arbitrary geographic polygon (with optional holes) with enclosing TriHex cells.
  *
- * Supports antimeridian crossings (+/- 180 deg) and includes iteration guards to
- * prevent event-loop starvation on un-chunked continental polygons.
+ * Supports:
+ *  - Simple polygons (GeoCoord[])
+ *  - Polygons with holes (GeoCoord[][]: [outerRing, hole1, hole2, ...])
+ *  - Antimeridian crossings (+/- 180 deg)
+ *  - Semantics: 'intersects' | 'covers' | 'contains'
+ *  - Strict DoS guards preventing event-loop starvation
  */
 export function polygonToCells(
-  coordinates: GeoCoord[],
+  polygonInput: GeoCoord[] | GeoCoord[][],
   resolution: number,
-  topoCluster = 0
+  options?: RasterizePolygonOptions | number
 ): TriHexId[] {
-  if (!Array.isArray(coordinates) || coordinates.length < 3) {
-    throw new Error('polygonToCells requires a closed polygon of at least 3 vertices');
-  }
-  if (resolution < 0 || resolution > BIT_LAYOUT.MAX_RESOLUTION) {
-    throw new Error(`Resolution ${resolution} must be between 0 and ${BIT_LAYOUT.MAX_RESOLUTION}`);
+  validateResolution(resolution);
+
+  let rings: GeoCoord[][];
+  let topoCluster = 0;
+  let mode: 'intersects' | 'covers' | 'contains' = 'intersects';
+  let maxCells = 200_000;
+
+  if (typeof options === 'number') {
+    topoCluster = options;
+  } else if (options && typeof options === 'object') {
+    topoCluster = options.topoCluster ?? 0;
+    mode = options.mode ?? 'intersects';
+    maxCells = options.maxCells ?? 200_000;
   }
 
-  // Ensure closed polygon
-  let poly = [...coordinates];
-  const first = poly[0];
-  const last = poly[poly.length - 1];
-  if (first.lat !== last.lat || first.lng !== last.lng) {
-    poly.push({ lat: first.lat, lng: first.lng });
+  if (Array.isArray(polygonInput) && polygonInput.length > 0 && Array.isArray(polygonInput[0])) {
+    rings = polygonInput as GeoCoord[][];
+  } else if (Array.isArray(polygonInput)) {
+    rings = [polygonInput as GeoCoord[]];
+  } else {
+    throw new TypeError('polygonToCells requires an array of GeoCoord or GeoCoord[][]');
   }
+
+  if (rings.length === 0 || rings[0].length < 3) {
+    throw new RangeError('polygonToCells requires a closed polygon of at least 3 vertices');
+  }
+
+  // Ensure closed rings
+  const closedRings = rings.map((ring) => {
+    const closed = [...ring];
+    const first = closed[0];
+    const last = closed[closed.length - 1];
+    if (first.lat !== last.lat || first.lng !== last.lng) {
+      closed.push({ lat: first.lat, lng: first.lng });
+    }
+    return closed;
+  });
+
+  const outerRing = closedRings[0];
 
   // Detect and normalize antimeridian crossing
   let crossesAntimeridian = false;
-  for (let i = 0; i < poly.length - 1; i++) {
-    if (Math.abs(poly[i].lng - poly[i + 1].lng) > 180) {
+  for (let i = 0; i < outerRing.length - 1; i++) {
+    if (Math.abs(outerRing[i].lng - outerRing[i + 1].lng) > 180) {
       crossesAntimeridian = true;
       break;
     }
   }
 
-  if (crossesAntimeridian) {
-    poly = poly.map((p) => ({
-      lat: p.lat,
-      lng: p.lng < 0 ? p.lng + 360 : p.lng,
-    }));
-  }
+  const normOuter = crossesAntimeridian
+    ? outerRing.map((p) => ({ lat: p.lat, lng: p.lng < 0 ? p.lng + 360 : p.lng }))
+    : outerRing;
 
-  // Calculate bounding box
+  // Bounding box
   let minLat = Infinity;
   let maxLat = -Infinity;
   let minLng = Infinity;
   let maxLng = -Infinity;
 
-  for (const p of poly) {
+  for (const p of normOuter) {
+    validateCoordinates(p.lat, crossesAntimeridian && p.lng > 180 ? p.lng - 360 : p.lng);
     if (p.lat < minLat) minLat = p.lat;
     if (p.lat > maxLat) maxLat = p.lat;
     if (p.lng < minLng) minLng = p.lng;
@@ -140,74 +235,55 @@ export function polygonToCells(
 
   const latSteps = Math.ceil((maxLat - minLat) / stepDegLat);
   const lngSteps = Math.ceil((maxLng - minLng) / stepDegLng);
-  const estimatedOperations = latSteps * lngSteps;
+  const estimatedOps = latSteps * lngSteps;
 
-  // DoS Guard: Prevent freezing Node.js event loop on massive regions
-  if (estimatedOperations > 200_000) {
+  if (estimatedOps > maxCells) {
     throw new RangeError(
-      `polygonToCells: Polygon bounding box covers too many potential cells (${estimatedOperations.toLocaleString()}) at resolution ${resolution}. ` +
-      `Use a coarser resolution (e.g. resolution ${Math.max(0, resolution - 2)}) or partition the polygon.`
+      `polygonToCells: Polygon bounding box covers too many potential cells (${estimatedOps.toLocaleString()}) at resolution ${resolution}. ` +
+      `Use a coarser resolution or partition the polygon.`
     );
   }
 
-  const cellSet = new Set<string>();
-  const cells: TriHexId[] = [];
+  const cellIdSet = new Set<string>();
+  const results: TriHexId[] = [];
 
-  const addCell = (id: TriHexId) => {
-    const key = id.toString();
-    if (!cellSet.has(key)) {
-      cellSet.add(key);
-      cells.push(id);
-    }
-  };
-
-  // 1. Trace perimeter boundary using original un-shifted coordinates
-  const perimeterCoords = crossesAntimeridian
-    ? poly.map((p) => ({ lat: p.lat, lng: p.lng > 180 ? p.lng - 360 : p.lng }))
-    : poly;
-  const perimeterCells = lineStringToCells(perimeterCoords, resolution, topoCluster);
-  for (const c of perimeterCells) {
-    addCell(c);
-  }
-
-  // 2. High-performance scanline filling for polygon interior
-  const n = poly.length;
   for (let lat = minLat; lat <= maxLat; lat += stepDegLat) {
-    const intersections: number[] = [];
+    for (let lng = minLng; lng <= maxLng; lng += stepDegLng) {
+      const realLng = crossesAntimeridian && lng > 180 ? lng - 360 : lng;
+      const pt: GeoCoord = { lat, lng: realLng };
 
-    for (let i = 0; i < n - 1; i++) {
-      const p1 = poly[i];
-      const p2 = poly[i + 1];
-
-      if ((p1.lat <= lat && p2.lat > lat) || (p2.lat <= lat && p1.lat > lat)) {
-        const x = p1.lng + ((lat - p1.lat) / (p2.lat - p1.lat)) * (p2.lng - p1.lng);
-        intersections.push(x);
-      }
-    }
-
-    intersections.sort((a, b) => a - b);
-
-    for (let i = 0; i < intersections.length - 1; i += 2) {
-      const xStart = intersections[i];
-      const xEnd = intersections[i + 1];
-
-      for (let rawLng = xStart; rawLng <= xEnd; rawLng += stepDegLng) {
-        let lng = rawLng;
-        if (crossesAntimeridian && lng > 180) {
-          lng -= 360;
-        }
-
-        const vec = geoToVector3D(lat, lng);
-        const proj = projectToFace(vec);
+      const inside = isPointInPolygon(pt, closedRings);
+      if (inside) {
+        const v = geoToVector3D(pt.lat, pt.lng);
+        const proj = projectToFace(v);
         const { morton } = barycentricToMorton(proj.u, proj.v, resolution);
         const cellId = packTriHexId(proj.face, resolution, morton);
-        if (topoCluster !== 0) {
-          defaultTopologyRegistry.setCluster(cellId, topoCluster);
+        const key = cellId.toString();
+
+        if (!cellIdSet.has(key)) {
+          cellIdSet.add(key);
+
+          if (mode === 'covers' || mode === 'contains') {
+            // For covers/contains: verify all 3 vertices are also inside
+            const boundary = cellToBoundary(cellId);
+            const allVerticesInside = boundary.every((b) => isPointInPolygon(b, closedRings));
+            if (allVerticesInside) {
+              results.push(cellId);
+            }
+          } else {
+            // Intersects
+            results.push(cellId);
+          }
+
+          if (topoCluster !== 0) {
+            defaultTopologyRegistry.setCluster(cellId, topoCluster);
+          }
         }
-        addCell(cellId);
       }
     }
   }
 
-  return cells;
+  // Deterministic sorting
+  results.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return results;
 }

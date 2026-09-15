@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "ts-node -T test/trihex.test.ts && ts-node -T test/trihex-enterprise.test.ts && ts-node -T test/trihex-audit-proofs.test.ts && ts-node -T test/trihex-dispatch.test.ts && ts-node -T test/trihex-adversarial-audit.ts",
+    "test": "ts-node -T test/trihex.test.ts && ts-node -T test/trihex-enterprise.test.ts && ts-node -T test/trihex-audit-proofs.test.ts && ts-node -T test/trihex-dispatch.test.ts && ts-node -T test/trihex-adversarial-audit.ts && ts-node -T test/trihex-dual.test.ts && ts-node -T test/trihex-candidate-recall.test.ts && ts-node -T test/trihex-concurrency.test.ts",
     "test:massive": "ts-node -T test/trihex-massive-scale.test.ts",
     "benchmark": "ts-node -T benchmarks/benchmark.ts",
     "prepublishOnly": "npm run build && npm test"

@@ -10,8 +10,7 @@ exports.BIT_LAYOUT = void 0;
  *  2. 100% compatibility with signed 64-bit SQL BIGINT (PostgreSQL/Prisma):
  *     Bit 63 is strictly 0, ensuring all TriHexId values are non-negative,
  *     eliminating numeric overflow and sign-inversion sorting bugs.
- *  3. Architectural decoupling: Road network topology partitioning is decoupled
- *     into an external registry, preserving spatial key immutability.
+ *  3. Storage & database independence: Logical spatial ID layout, not an engine constraint.
  *
  *  Bit 63     (1 bit):   Sign Guard (strictly 0)
  *  Bits 58–62 (5 bits):  Face ID (0..19)
@@ -28,7 +27,10 @@ exports.BIT_LAYOUT = {
     FACE_MASK: 0x1fn << 58n,
     RES_MASK: 0x0fn << 54n,
     MORTON_MASK: (1n << 54n) - 1n,
+    SIGN_GUARD_BIT: 63n,
     MAX_SIGNED_INT64: 0x7fffffffffffffffn,
     MAX_RESOLUTION: 15,
     TOTAL_FACES: 20,
+    TOTAL_VERTICES: 12,
+    TOTAL_EDGES: 30,
 };

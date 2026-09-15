@@ -1,8 +1,6 @@
+import { geodesicDistance } from './icosahedron';
 import { cellToLatLng } from './triangle-quadtree';
-import { EffectiveDistanceParams, GeoCoord, TriHexId } from './types';
-
-const EARTH_RADIUS_METERS = 6371008.8;
-const DEG2RAD = Math.PI / 180;
+import { EffectiveDistanceParams, TriHexId } from './types';
 
 /**
  * External registry for Road Network Topology Partition Clusters.
@@ -88,22 +86,7 @@ export function isSameCluster(
   return registry.isSamePartition(idA, idB);
 }
 
-/**
- * Calculates great-circle geodesic distance in meters using Haversine formula
- */
-export function geodesicDistance(coordA: GeoCoord, coordB: GeoCoord): number {
-  const lat1 = coordA.lat * DEG2RAD;
-  const lat2 = coordB.lat * DEG2RAD;
-  const dLat = (coordB.lat - coordA.lat) * DEG2RAD;
-  const dLng = (coordB.lng - coordA.lng) * DEG2RAD;
-
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return EARTH_RADIUS_METERS * c;
-}
+export { geodesicDistance } from './icosahedron';
 
 /**
  * Computes the topology-aware effective distance between two cells.

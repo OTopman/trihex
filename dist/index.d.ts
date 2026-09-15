@@ -1,28 +1,30 @@
 import { DispatchEngine, DispatchEngineOptions } from './dispatch';
 import { CellFeatureProperties, GeoJSONFeature, GeoJSONFeatureCollection, GeoJSONPolygonGeometry } from './geojson';
 import { TopologyPartitionRegistry } from './network-metric';
-import { CellRange, EffectiveDistanceParams, GeoCoord, TriHexId } from './types';
+import { RasterizePolygonOptions } from './rasterization';
+import { CellRange, EffectiveDistanceParams, GeoCoord, HexDual, TriHexId } from './types';
 /**
- * TriHex: Unified Tri-Hex Metric Spatial Indexing Engine
+ * TriHex: Unified 64-bit Discrete Global Grid System & Mobility Spatial Engine
+ *
+ * Provides:
+ *  1. Exact 1:4 hierarchical triangular quadtree on the spherical icosahedron.
+ *  2. Genuine spherical Voronoi dual (hexagonal tiling with 12 pentagonal singularities).
+ *  3. Exact 1D database B-Tree descendant range intervals (100% density, zero false positives).
+ *  4. Storage & database independence: Zero runtime database dependencies.
+ *  5. Clean separation of spatial indexing and mobility dispatch architecture.
  */
 export declare class TriHex {
     /**
      * Convert geographic coordinates (latitude, longitude) to a 64-bit TriHexId
      * at the specified resolution (0 to 15).
-     *
-     * Validates:
-     *  - lat/lng must be finite numbers
-     *  - lat in [-90, 90], lng in [-180, 180]
-     *  - resolution in [0, 15]
-     *  - topoCluster in [0, 4095]
      */
     static latLngToCell(lat: number, lng: number, resolution: number, topoCluster?: number): TriHexId;
     /**
-     * Returns the center geographic coordinates (lat, lng) of a cell
+     * Returns the center geographic coordinates (lat, lng) of a triangular cell
      */
     static cellToLatLng(id: TriHexId): GeoCoord;
     /**
-     * Returns the 3 boundary vertices of the triangular cell
+     * Returns the 3 spherical boundary vertices of the triangular cell
      */
     static cellToBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord];
     /**
@@ -30,23 +32,48 @@ export declare class TriHex {
      */
     static cellToParent(id: TriHexId, targetResolution?: number): TriHexId;
     /**
+     * Returns all immediate child cells at targetResolution
+     */
+    static cellToChildren(id: TriHexId, targetResolution?: number): TriHexId[];
+    /**
      * Returns the exact 1D contiguous range [startId, endId] of all descendant cells
      * at a finer targetResolution for instant B-Tree SQL index scans.
      */
     static cellToChildrenRange(id: TriHexId, targetResolution: number): CellRange;
-    /** Returns the three cells sharing an edge with this triangular cell. */
-    static getCellNeighbors(id: TriHexId): TriHexId[];
     /**
-     * @deprecated This compatibility alias returns triangular edge neighbours,
-     * not six hexagonal Voronoi neighbours. Use getCellNeighbors.
+     * Returns the three cells sharing a complete edge with this triangular cell.
+     * Guarantees 100% reciprocal symmetry and edge sharing across icosahedron seams.
+     */
+    static getCellNeighbors(id: TriHexId): [TriHexId, TriHexId, TriHexId];
+    /**
+     * Returns the triangular edge-adjacency graph disk within radius k.
+     */
+    static cellDisk(originId: TriHexId, radius: number): TriHexId[];
+    /**
+     * Constructs the genuine spherical Voronoi dual cell (HexDual) for this cell.
+     * Returns 6 spherical circumcenter vertices for regular hexagons, and 5 for the 12 pentagonal singularities.
+     */
+    static getHexDual(id: TriHexId): HexDual;
+    /**
+     * Returns the exact neighbor cells in the spherical Voronoi dual graph.
+     * Returns 6 neighbors for regular hexagons, and 5 for the 12 pentagonal singularities.
      */
     static getHexNeighbors(id: TriHexId): TriHexId[];
-    /** Returns the triangular edge-adjacency graph disk within radius k. */
-    static cellDisk(originId: TriHexId, radius: number): TriHexId[];
-    /** @deprecated This compatibility alias returns a triangular graph disk. */
-    static hexRing(originId: TriHexId, radius: number): TriHexId[];
-    /** @deprecated Returns the actual triangular boundary; no hexagonal dual exists. */
+    /**
+     * Returns the exact spherical Voronoi boundary coordinates of the dual cell
+     * (6 vertices for regular hexagons, 5 vertices for pentagons).
+     */
     static getHexDualBoundary(id: TriHexId): GeoCoord[];
+    /**
+     * Expands a breadth-first search on the hexagonal Voronoi dual graph up to radius k.
+     * Produces 7 cells at radius 1, and 19 cells at radius 2 for regular hexagonal regions.
+     */
+    static hexRing(originId: TriHexId, radius: number): TriHexId[];
+    /**
+     * Returns all canonical spherical Voronoi dual cells at the given resolution.
+     * Total count is exactly 10 * 4^R + 2 (Euler characteristic).
+     */
+    static getResolutionDualCells(resolution: number): TriHexId[];
     /**
      * Singleton road network topology partition registry
      */
@@ -86,7 +113,7 @@ export declare class TriHex {
     /**
      * Validates whether an input is a structurally sound 64-bit TriHexId
      */
-    static isValidCell(input: TriHexId | string): boolean;
+    static isValidCell(input: unknown): input is TriHexId;
     /**
      * JSON replacer function to safely serialize BigInt TriHexId values as hex strings
      */
@@ -105,22 +132,23 @@ export declare class TriHex {
     static cellsToGeoJSON(ids: TriHexId[], mode?: 'triangle' | 'hexDual'): GeoJSONFeatureCollection<GeoJSONPolygonGeometry, CellFeatureProperties>;
     /**
      * Rasterizes a polyline route into an ordered sequence of contiguous TriHex cells
+     * using spherical great-circle interpolation (Slerp).
      */
     static lineStringToCells(coordinates: GeoCoord[], resolution: number, topoCluster?: number): TriHexId[];
     /**
-     * Fills an arbitrary geographic polygon with all enclosing TriHex cells
+     * Fills an arbitrary geographic polygon (with optional holes) with enclosing TriHex cells.
      */
-    static polygonToCells(coordinates: GeoCoord[], resolution: number, topoCluster?: number): TriHexId[];
+    static polygonToCells(coordinates: GeoCoord[] | GeoCoord[][], resolution: number, options?: RasterizePolygonOptions | number): TriHexId[];
     /**
      * Returns the approximate circumradius in meters for cells at a given resolution
      */
     static getResolutionCellRadius(resolution: number): number;
     /**
-     * Compacts a set of cells by hierarchically merging 4-sibling clusters
+     * Compacts a set of cells by hierarchically merging 4-sibling clusters with deterministic sorting.
      */
     static compactCells(cells: TriHexId[]): TriHexId[];
     /**
-     * Expands compacted cells down to a uniform target resolution
+     * Expands compacted cells down to a uniform target resolution.
      */
     static uncompactCells(cells: TriHexId[], targetResolution: number): TriHexId[];
     /**
@@ -134,22 +162,28 @@ export declare class TriHex {
         topoCluster: number;
     };
     /**
-     * Pack component fields into a 64-bit TriHexId (pure 63-bit non-negative)
+     * Pack component fields into a 64-bit TriHexId (strictly 63-bit non-negative)
      */
     static pack(face: number, resolution: number, morton: bigint, _dualSector?: number, topoCluster?: number): TriHexId;
     /**
-     * Creates an instance of the 2-Tier Mobility Dispatch Engine
+     * Creates an instance of the Multi-Tier Mobility Dispatch Engine
      */
     static createDispatchEngine(options?: DispatchEngineOptions): DispatchEngine;
 }
+export * from './adjacency';
+export * from './candidate-recall';
 export * from './compaction';
+export * from './constants';
 export * from './dispatch';
 export * from './geojson';
 export * from './hex-dual';
 export * from './icosahedron';
 export * from './network-metric';
 export * from './rasterization';
+export * from './routing';
 export * from './serialization';
+export * from './topology';
 export * from './triangle-quadtree';
 export * from './types';
+export * from './validation';
 export default TriHex;

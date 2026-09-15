@@ -13,11 +13,20 @@ export interface CellRange {
     start: TriHexId;
     end: TriHexId;
 }
+export type CellRangeSet = CellRange[];
+/**
+ * Genuine Spherical Voronoi Dual Cell representation.
+ * Every dual cell is centered at a primal vertex of the icosahedral triangulation.
+ * Cells are regular hexagons (degree 6) everywhere, except at the 12 icosahedron
+ * vertices where Euler's formula strictly dictates degree-5 pentagons.
+ */
 export interface HexDual {
-    hexId: TriHexId;
-    center: GeoCoord;
-    boundary: GeoCoord[];
-    neighbors: TriHexId[];
+    readonly id: TriHexId;
+    readonly center: GeoCoord;
+    readonly boundary: GeoCoord[];
+    readonly neighbors: TriHexId[];
+    readonly isPentagon: boolean;
+    readonly degree: 5 | 6;
 }
 export interface EffectiveDistanceParams {
     alpha?: number;
@@ -32,8 +41,7 @@ export interface EffectiveDistanceParams {
  *  2. 100% compatibility with signed 64-bit SQL BIGINT (PostgreSQL/Prisma):
  *     Bit 63 is strictly 0, ensuring all TriHexId values are non-negative,
  *     eliminating numeric overflow and sign-inversion sorting bugs.
- *  3. Architectural decoupling: Road network topology partitioning is decoupled
- *     into an external registry, preserving spatial key immutability.
+ *  3. Storage & database independence: Logical spatial ID layout, not an engine constraint.
  *
  *  Bit 63     (1 bit):   Sign Guard (strictly 0)
  *  Bits 58–62 (5 bits):  Face ID (0..19)
@@ -50,7 +58,10 @@ export declare const BIT_LAYOUT: {
     readonly FACE_MASK: bigint;
     readonly RES_MASK: bigint;
     readonly MORTON_MASK: bigint;
+    readonly SIGN_GUARD_BIT: 63n;
     readonly MAX_SIGNED_INT64: 9223372036854775807n;
     readonly MAX_RESOLUTION: 15;
     readonly TOTAL_FACES: 20;
+    readonly TOTAL_VERTICES: 12;
+    readonly TOTAL_EDGES: 30;
 };

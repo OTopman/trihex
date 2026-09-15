@@ -1,8 +1,6 @@
 import { TriHexId } from './types';
-/**
- * Validates whether an input is a structurally sound 64-bit TriHexId.
- */
-export declare function isValidCell(input: TriHexId | string): boolean;
+import { isValidCell } from './validation';
+export { isValidCell };
 /**
  * Converts a 64-bit TriHexId to a canonical 16-character lowercase hexadecimal string.
  * Example: "0000000000bd4533"

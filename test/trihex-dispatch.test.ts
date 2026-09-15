@@ -38,13 +38,15 @@ class MockRedisClient implements RedisCommandClient {
     const cellTtl = Number(args[3] ?? 0);
     const driverTtl = Number(args[4] ?? 0);
     const payload = String(args[5] ?? '');
-    const incoming = JSON.parse(payload) as { updatedAt: number };
+    const incoming = JSON.parse(payload) as { updatedAt: number; version?: number };
 
     // Execute atomic Lua logic:
     const existing = this.kvs.get(driverPosKey);
     if (existing) {
-      const previous = JSON.parse(existing.value) as { updatedAt: number; cellKey?: string };
-      if (previous.updatedAt > incoming.updatedAt) return 0;
+      const previous = JSON.parse(existing.value) as { updatedAt: number; version?: number; cellKey?: string };
+      const prevVer = previous.version ?? 0;
+      const inVer = incoming.version ?? 0;
+      if (prevVer >= inVer) return 0;
       if (previous.cellKey && previous.cellKey !== newCellKey) {
         this.sets.get(previous.cellKey)?.delete(driverId);
       }
@@ -132,16 +134,16 @@ async function runDispatchTests() {
   const cityId = 'lagos';
   const sampleCell = TriHex.latLngToCell(6.4281, 3.4219, 9);
   const cellKey = formatCellKey(cityId, sampleCell);
-  const driverKey = formatDriverKey(cityId, 'drv_1001');
+  const driverKey = formatDriverKey(cityId, 'drv_1001', sampleCell);
 
-  assert(cellKey.startsWith('{lagos}:cell:'), `Cell key must be hash-tagged with {cityId}: ${cellKey}`);
-  assert(driverKey === '{lagos}:driver:drv_1001', `Driver key must be hash-tagged with {cityId}: ${driverKey}`);
+  assert(cellKey.startsWith('{lagos:'), `Cell key must be hash-tagged with {cityId:shard}: ${cellKey}`);
+  assert(driverKey.startsWith('{lagos:'), `Driver key must be hash-tagged with {cityId:shard}: ${driverKey}`);
 
-  // Verify hash-tag extraction: both must yield exact same hash tag "lagos"
+  // Verify hash-tag extraction: both must yield exact same hash tag
   const tagCell = cellKey.substring(cellKey.indexOf('{') + 1, cellKey.indexOf('}'));
   const tagDriver = driverKey.substring(driverKey.indexOf('{') + 1, driverKey.indexOf('}'));
   assert(
-    tagCell === 'lagos' && tagDriver === 'lagos',
+    tagCell === tagDriver,
     'Both cell and driver keys must share identical cluster hash tags'
   );
   console.log(`  ✓ Cluster keys correctly hash-tagged: ${cellKey} & ${driverKey}`);
@@ -161,33 +163,32 @@ async function runDispatchTests() {
   const neighbors = TriHex.getCellNeighbors(cellA);
   const cellB = neighbors[0]; // Adjacent cell
 
-  // 1. Initial driver update
+  // 1. Initial driver update (version 1)
   await dispatchWithRedis.updateDriverPosition({
     driverId: 'drv_2001',
     lat: 6.4281,
     lng: 3.4219,
     cellId: cellA,
     cityId,
-    updatedAt: Date.now(),
+    version: 1,
+    updatedAt: 1000,
     status: 'AVAILABLE',
   });
 
   const driversInA_1 = await mockRedis.smembers(formatCellKey(cityId, cellA));
   assert(driversInA_1.includes('drv_2001'), 'Driver must exist in cell A');
 
-  // 2. Driver migrates to cell B
-  await dispatchWithRedis.updateDriverPosition(
-    {
-      driverId: 'drv_2001',
-      lat: 6.435,
-      lng: 3.425,
-      cellId: cellB,
-      cityId,
-      updatedAt: Date.now(),
-      status: 'AVAILABLE',
-    },
-    cellA
-  );
+  // 2. Driver migrates to cell B (version 2)
+  await dispatchWithRedis.updateDriverPosition({
+    driverId: 'drv_2001',
+    lat: 6.435,
+    lng: 3.425,
+    cellId: cellB,
+    cityId,
+    version: 2,
+    updatedAt: 2000,
+    status: 'AVAILABLE',
+  });
 
   const driversInA_2 = await mockRedis.smembers(formatCellKey(cityId, cellA));
   const driversInB_2 = await mockRedis.smembers(formatCellKey(cityId, cellB));
@@ -196,19 +197,18 @@ async function runDispatchTests() {
   assert(driversInB_2.includes('drv_2001'), 'Driver must be atomically ADDED to new cell B');
   console.log('  ✓ Verified atomic migration: 0 ghost drivers left in old cell.');
 
-  // 3. A delayed older ping must not move the driver back to cell A.
-  await dispatchWithRedis.updateDriverPosition(
-    {
-      driverId: 'drv_2001',
-      lat: 6.4281,
-      lng: 3.4219,
-      cellId: cellA,
-      cityId,
-      updatedAt: 1,
-      status: 'AVAILABLE',
-    },
-    cellB
-  );
+  // 3. A delayed older ping (version 1) must not move the driver back to cell A.
+  const rejected = await dispatchWithRedis.updateDriverPosition({
+    driverId: 'drv_2001',
+    lat: 6.4281,
+    lng: 3.4219,
+    cellId: cellA,
+    cityId,
+    version: 1,
+    updatedAt: 1500,
+    status: 'AVAILABLE',
+  });
+  assert(rejected === false, 'Delayed older update must be rejected');
   assert(
     (await mockRedis.smembers(formatCellKey(cityId, cellB))).includes('drv_2001'),
     'Delayed older update must leave driver in authoritative newer cell'
@@ -259,6 +259,7 @@ async function runDispatchTests() {
       lng: center.lng,
       cellId: ring1Cells[i],
       cityId,
+      version: 1,
       updatedAt: Date.now(),
       status: 'AVAILABLE',
     });
@@ -272,6 +273,7 @@ async function runDispatchTests() {
     lng: busyCenter.lng,
     cellId: ring1Cells[0],
     cityId,
+    version: 1,
     updatedAt: Date.now(),
     status: 'BUSY',
   });
@@ -285,6 +287,7 @@ async function runDispatchTests() {
       lng: center.lng,
       cellId: ring2Cells[i + 3],
       cityId,
+      version: 1,
       updatedAt: Date.now(),
       status: 'AVAILABLE',
     });

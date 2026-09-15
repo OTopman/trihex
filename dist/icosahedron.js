@@ -4,13 +4,18 @@ exports.geoToVector3D = geoToVector3D;
 exports.vector3DToGeo = vector3DToGeo;
 exports.dotProduct = dotProduct;
 exports.crossProduct = crossProduct;
+exports.normalize = normalize;
+exports.slerp = slerp;
+exports.geodesicDistance = geodesicDistance;
 exports.projectToFace = projectToFace;
 exports.inverseProjectFromFace = inverseProjectFromFace;
+exports.faceBarycentricToVector3D = faceBarycentricToVector3D;
 const constants_1 = require("./constants");
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
+const EARTH_RADIUS_METERS = 6371008.8;
 /**
- * Convert Latitude and Longitude in degrees to 3D Cartesian coordinates on unit sphere
+ * Convert Latitude and Longitude in degrees (WGS84) to 3D Cartesian coordinates on unit sphere
  */
 function geoToVector3D(lat, lng) {
     const phi = lat * DEG2RAD;
@@ -27,6 +32,9 @@ function geoToVector3D(lat, lng) {
  */
 function vector3DToGeo(v) {
     const len = Math.hypot(v[0], v[1], v[2]);
+    if (len < 1e-15) {
+        return { lat: 0, lng: 0 };
+    }
     const x = v[0] / len;
     const y = v[1] / len;
     const z = Math.max(-1, Math.min(1, v[2] / len));
@@ -49,6 +57,54 @@ function crossProduct(a, b) {
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
     ];
+}
+/**
+ * Normalize a 3D vector to unit length
+ */
+function normalize(v) {
+    const len = Math.hypot(v[0], v[1], v[2]);
+    if (len < 1e-15)
+        return [0, 0, 1];
+    return [v[0] / len, v[1] / len, v[2] / len];
+}
+/**
+ * Spherical linear interpolation (Slerp) between two unit vectors
+ */
+function slerp(v0, v1, t) {
+    let dot = dotProduct(v0, v1);
+    dot = Math.max(-1, Math.min(1, dot));
+    if (dot > 0.999995) {
+        // Vectors are almost parallel; linear interpolation is numerically stable
+        return normalize([
+            v0[0] + t * (v1[0] - v0[0]),
+            v0[1] + t * (v1[1] - v0[1]),
+            v0[2] + t * (v1[2] - v0[2]),
+        ]);
+    }
+    const theta0 = Math.acos(dot);
+    const theta = theta0 * t;
+    const sinTheta = Math.sin(theta);
+    const sinTheta0 = Math.sin(theta0);
+    const s0 = Math.cos(theta) - dot * (sinTheta / sinTheta0);
+    const s1 = sinTheta / sinTheta0;
+    return [
+        s0 * v0[0] + s1 * v1[0],
+        s0 * v0[1] + s1 * v1[1],
+        s0 * v0[2] + s1 * v1[2],
+    ];
+}
+/**
+ * Calculate great-circle geodesic distance in meters between two GeoCoords (Haversine formula)
+ */
+function geodesicDistance(coordA, coordB) {
+    const lat1 = coordA.lat * DEG2RAD;
+    const lat2 = coordB.lat * DEG2RAD;
+    const dLat = (coordB.lat - coordA.lat) * DEG2RAD;
+    const dLng = (coordB.lng - coordA.lng) * DEG2RAD;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(Math.max(0, a)), Math.sqrt(Math.max(0, 1 - a)));
+    return EARTH_RADIUS_METERS * c;
 }
 /**
  * Project a 3D unit vector onto the icosahedron face it lies within.
@@ -93,10 +149,17 @@ function projectToFace(vec) {
         const minBary = Math.min(u, v, w);
         if (minBary >= -1e-9) {
             // Exact hit inside face
+            let clampedU = Math.max(0, Math.min(1, u));
+            let clampedV = Math.max(0, Math.min(1, v));
+            if (clampedU + clampedV > 1) {
+                const sum = clampedU + clampedV;
+                clampedU /= sum;
+                clampedV /= sum;
+            }
             return {
                 face: f,
-                u: Math.max(0, Math.min(1, u)),
-                v: Math.max(0, Math.min(1, v)),
+                u: clampedU,
+                v: clampedV,
             };
         }
         if (minBary > bestMinBary) {
@@ -129,4 +192,19 @@ function inverseProjectFromFace(face, u, v) {
         w * v0[2] + u * v1[2] + v * v2[2],
     ];
     return vector3DToGeo(q);
+}
+/**
+ * Convert face and barycentric coordinates directly to 3D Cartesian unit vector on sphere
+ */
+function faceBarycentricToVector3D(face, u, v) {
+    const [i0, i1, i2] = constants_1.ICOSAHEDRON_FACES[face];
+    const v0 = constants_1.ICOSAHEDRON_VERTICES[i0];
+    const v1 = constants_1.ICOSAHEDRON_VERTICES[i1];
+    const v2 = constants_1.ICOSAHEDRON_VERTICES[i2];
+    const w = 1 - u - v;
+    return normalize([
+        w * v0[0] + u * v1[0] + v * v2[0],
+        w * v0[1] + u * v1[1] + v * v2[1],
+        w * v0[2] + u * v1[2] + v * v2[2],
+    ]);
 }

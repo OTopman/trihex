@@ -1,7 +1,8 @@
-import { getHexDualBoundary } from './hex-dual';
+import { getHexDual } from './hex-dual';
 import { cellToString } from './serialization';
 import { cellToBoundary, unpackTriHexId } from './triangle-quadtree';
 import { TriHexId } from './types';
+import { validateCellId } from './validation';
 
 export interface GeoJSONPolygonGeometry {
   type: 'Polygon';
@@ -26,8 +27,8 @@ export interface CellFeatureProperties {
   resolution: number;
   morton: string;
   representation: 'triangle' | 'hexDual';
-  dualSector?: number;
-  topoCluster?: number;
+  degree?: number;
+  isPentagon?: boolean;
 }
 
 /**
@@ -35,11 +36,12 @@ export interface CellFeatureProperties {
  * Coordinates are formatted as [longitude, latitude] in closed rings.
  */
 export function cellToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeometry, CellFeatureProperties> {
+  validateCellId(id);
   const boundary = cellToBoundary(id);
   const unpacked = unpackTriHexId(id);
   const idStr = cellToString(id);
 
-  // GeoJSON requires [lng, lat] coordinate order and closed ring (first vertex repeated at the end)
+  // GeoJSON requires [lng, lat] coordinate order and closed ring
   const ring: [number, number][] = boundary.map((c) => [c.lng, c.lat]);
   ring.push([boundary[0].lng, boundary[0].lat]);
 
@@ -55,26 +57,24 @@ export function cellToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeomet
       face: unpacked.face,
       resolution: unpacked.resolution,
       morton: unpacked.morton.toString(16),
-      dualSector: 0,
-      topoCluster: 0,
       representation: 'triangle',
     },
   };
 }
 
 /**
- * @deprecated TriHex stores triangles and has no globally regular hexagonal
- * dual. This compatibility export returns the actual triangular cell geometry.
+ * Converts the spherical Voronoi dual cell (hexagon or pentagon) into an RFC 7946 GeoJSON Feature<Polygon>.
+ * The polygon boundary consists of the true spherical circumcenters (6 for hexagons, 5 for pentagons).
  */
 export function hexDualToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeometry, CellFeatureProperties> {
-  const boundary = getHexDualBoundary(id);
+  validateCellId(id);
+  const dual = getHexDual(id);
   const unpacked = unpackTriHexId(id);
   const idStr = cellToString(id);
 
-  // GeoJSON closed ring
-  const ring: [number, number][] = boundary.map((c) => [c.lng, c.lat]);
-  if (boundary.length > 0) {
-    ring.push([boundary[0].lng, boundary[0].lat]);
+  const ring: [number, number][] = dual.boundary.map((c) => [c.lng, c.lat]);
+  if (dual.boundary.length > 0) {
+    ring.push([dual.boundary[0].lng, dual.boundary[0].lat]);
   }
 
   return {
@@ -89,16 +89,16 @@ export function hexDualToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeo
       face: unpacked.face,
       resolution: unpacked.resolution,
       morton: unpacked.morton.toString(16),
-      dualSector: 0,
-      topoCluster: 0,
-      representation: 'triangle',
+      representation: 'hexDual',
+      degree: dual.degree,
+      isPentagon: dual.isPentagon,
     },
   };
 }
 
 /**
  * Bundles multiple TriHex cells into a unified GeoJSON FeatureCollection
- * suitable for immediate rendering in Mapbox GL, Leaflet, or Kepler.gl.
+ * suitable for rendering in Mapbox GL, Leaflet, or Kepler.gl.
  */
 export function cellsToGeoJSON(
   ids: TriHexId[],

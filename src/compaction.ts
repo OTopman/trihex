@@ -1,21 +1,27 @@
 import { cellToChildrenRange, cellToParent, unpackTriHexId } from './triangle-quadtree';
 import { BIT_LAYOUT, TriHexId } from './types';
+import { validateCellId, validateResolution } from './validation';
 
 /**
- * Compacts a set of TriHex cells by recursively collapsing sets of 4 sibling
- * triangles into their parent cell.
+ * Compacts a set of TriHex cells by recursively collapsing complete sets of
+ * 4 sibling triangles into their parent cell.
  *
- * Performs initial top-down ancestor pruning to eliminate redundant descendants,
- * then bottom-up 4:1 sibling reduction. Reduces memory and storage by up to 93.75%.
+ * Guarantees:
+ *  1. Strict input validation (rejects invalid/malformed IDs).
+ *  2. Top-down ancestor pruning (removes redundant descendants if an ancestor is present).
+ *  3. Bottom-up 4:1 sibling reduction up to resolution 0.
+ *  4. Deterministic canonical ordering (sorted ascending by BigInt).
+ *  5. Invertibility: compact(uncompact(compact(X), targetRes)) == canonical(compact(X)).
  */
 export function compactCells(cells: TriHexId[]): TriHexId[] {
   if (!Array.isArray(cells) || cells.length === 0) {
     return [];
   }
 
-  // 1. Deduplicate input cells
+  // 1. Validate and deduplicate input cells
   const uniqueCells = new Set<TriHexId>();
   for (const c of cells) {
+    validateCellId(c);
     uniqueCells.add(c);
   }
 
@@ -95,24 +101,33 @@ export function compactCells(cells: TriHexId[]): TriHexId[] {
     }
   }
 
+  // 6. Deterministic canonical sorting (ascending)
+  compacted.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
   return compacted;
 }
 
 /**
  * Uncompacts a set of mixed-resolution cells by expanding any coarser cells
  * down to the uniform targetResolution.
+ *
+ * Guarantees:
+ *  1. Strict input validation.
+ *  2. Deduplication.
+ *  3. Deterministic canonical sorting (ascending).
  */
 export function uncompactCells(cells: TriHexId[], targetResolution: number): TriHexId[] {
-  if (targetResolution < 0 || targetResolution > BIT_LAYOUT.MAX_RESOLUTION) {
-    throw new Error(
-      `Target resolution ${targetResolution} must be between 0 and ${BIT_LAYOUT.MAX_RESOLUTION}`
-    );
+  validateResolution(targetResolution);
+
+  if (!Array.isArray(cells) || cells.length === 0) {
+    return [];
   }
 
   const uncompactedSet = new Set<string>();
   const uncompacted: TriHexId[] = [];
 
   for (const cell of cells) {
+    validateCellId(cell);
     const { resolution } = unpackTriHexId(cell);
 
     if (resolution === targetResolution) {
@@ -133,11 +148,14 @@ export function uncompactCells(cells: TriHexId[], targetResolution: number): Tri
         }
       }
     } else {
-      throw new Error(
+      throw new RangeError(
         `Cannot uncompact cell at resolution ${resolution} to coarser target resolution ${targetResolution}`
       );
     }
   }
+
+  // Deterministic canonical sorting (ascending)
+  uncompacted.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   return uncompacted;
 }
