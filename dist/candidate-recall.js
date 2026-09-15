@@ -59,15 +59,36 @@ async function evaluateCandidateRecall(scenarioName, topology, drivers, pickup, 
         }
         return found / topK.length;
     };
+    // 5. Calculate MRR & ETA Regret
+    const bestDriver = groundTruthScored[0];
+    let mrr = 0;
+    if (bestDriver) {
+        const idx = candidates.findIndex((c) => c.driverId === bestDriver.driverId);
+        if (idx !== -1) {
+            mrr = 1.0 / (idx + 1);
+        }
+    }
+    const trihexBest = candidates[0];
+    const etaRegretSeconds = trihexBest && bestDriver ? Math.max(0, trihexBest.finalScore - bestDriver.durationSeconds) : 0;
+    const relativeEtaRegretPct = bestDriver && bestDriver.durationSeconds > 0
+        ? (etaRegretSeconds / bestDriver.durationSeconds) * 100
+        : 0;
+    const top5 = groundTruthScored.slice(0, 5);
+    const falseNegativeCount = top5.filter((item) => !retrievedDriverIds.has(item.driverId)).length;
     const metrics = {
         scenarioName,
         totalFleetSize: drivers.length,
         retrievedCount: candidates.length,
+        recallAt1: calcRecallAtK(1),
         recallAt5: calcRecallAtK(5),
         recallAt10: calcRecallAtK(10),
         recallAt25: calcRecallAtK(25),
         recallAt50: calcRecallAtK(50),
         recallAt100: calcRecallAtK(100),
+        mrr,
+        etaRegretSeconds,
+        relativeEtaRegretPct,
+        falseNegativeCount,
     };
     return {
         metrics,

@@ -1,5 +1,5 @@
-import { getResolutionDualCells, TriHex, validateCellId } from '../src/index';
 import { geoToVector3D } from '../src/icosahedron';
+import { getResolutionDualCells, TriHex, validateCellId } from '../src/index';
 
 function assert(condition: boolean, message: string) {
   if (!condition) {

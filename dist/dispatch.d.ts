@@ -78,7 +78,7 @@ export declare function formatDriverKey(cityId: string, driverId: string, cellId
  *  5. Updates authoritative position record (SET ... EX driverTtl).
  *  6. Refreshes cell set TTL.
  */
-export declare const MIGRATE_DRIVER_LUA = "\nlocal newCellKey = KEYS[1]\nlocal driverPosKey = KEYS[2]\nlocal driverId = ARGV[1]\nlocal cellTtl = tonumber(ARGV[2])\nlocal driverTtl = tonumber(ARGV[3])\nlocal payload = ARGV[4]\nlocal incoming = cjson.decode(payload)\nlocal incomingVersion = tonumber(incoming.version) or 0\n\nlocal existingRaw = redis.call(\"GET\", driverPosKey)\nif existingRaw then\n  local existing = cjson.decode(existingRaw)\n  local existingVersion = tonumber(existing.version) or 0\n  if existingVersion >= incomingVersion then\n    return 0 -- Stale or duplicate update rejected\n  end\n\n  local oldCellKey = existing.cellKey\n  if oldCellKey and oldCellKey ~= \"\" and oldCellKey ~= newCellKey then\n    redis.call(\"SREM\", oldCellKey, driverId)\n  end\nend\n\nredis.call(\"SADD\", newCellKey, driverId)\nif cellTtl and cellTtl > 0 then\n  redis.call(\"EXPIRE\", newCellKey, cellTtl)\nend\n\nredis.call(\"SET\", driverPosKey, payload, \"EX\", driverTtl)\nreturn 1\n";
+export declare const MIGRATE_DRIVER_LUA = "\nlocal newCellKey = KEYS[1]\nlocal driverPosKey = KEYS[2]\nlocal driverId = ARGV[1]\nlocal cellTtl = tonumber(ARGV[2])\nlocal driverTtl = tonumber(ARGV[3])\nlocal payload = ARGV[4]\nlocal incoming = cjson.decode(payload)\nlocal incomingVersion = tonumber(incoming.version) or 0\n\nlocal existingRaw = redis.call(\"GET\", driverPosKey)\nif existingRaw then\n  local existing = cjson.decode(existingRaw)\n  local existingVersion = tonumber(existing.version) or 0\n  if existingVersion >= incomingVersion then\n    return 0 -- Stale or duplicate update rejected\n  end\n\n  local oldCellKey = existing.cellKey\n  if oldCellKey and oldCellKey ~= \"\" and oldCellKey ~= newCellKey then\n    pcall(redis.call, \"SREM\", oldCellKey, driverId)\n  end\nend\n\nredis.call(\"SADD\", newCellKey, driverId)\nif cellTtl and cellTtl > 0 then\n  redis.call(\"EXPIRE\", newCellKey, cellTtl)\nend\n\nredis.call(\"SET\", driverPosKey, payload, \"EX\", driverTtl)\nreturn 1\n";
 /**
  * Atomic Redis Lua script for driver offline removal with tombstone protection.
  *
@@ -87,7 +87,7 @@ export declare const MIGRATE_DRIVER_LUA = "\nlocal newCellKey = KEYS[1]\nlocal d
  *  2. Removes driver from the spatial cell set (SREM).
  *  3. Writes a tombstone record with incremented version and tombstone TTL to prevent delayed pings from resurrecting.
  */
-export declare const REMOVE_DRIVER_LUA = "\nlocal driverPosKey = KEYS[1]\nlocal driverId = ARGV[1]\nlocal tombstoneTtl = tonumber(ARGV[2]) or 60\nlocal tombstonePayload = ARGV[3]\nlocal incoming = cjson.decode(tombstonePayload)\nlocal incomingVersion = tonumber(incoming.version) or 0\n\nlocal existingRaw = redis.call(\"GET\", driverPosKey)\nif existingRaw then\n  local existing = cjson.decode(existingRaw)\n  local existingVersion = tonumber(existing.version) or 0\n  if existingVersion > incomingVersion then\n    return 0 -- Stale offline request rejected\n  end\n\n  local cellKey = existing.cellKey\n  if cellKey and cellKey ~= \"\" then\n    redis.call(\"SREM\", cellKey, driverId)\n  end\nend\n\nredis.call(\"SET\", driverPosKey, tombstonePayload, \"EX\", tombstoneTtl)\nreturn 1\n";
+export declare const REMOVE_DRIVER_LUA = "\nlocal driverPosKey = KEYS[1]\nlocal driverId = ARGV[1]\nlocal tombstoneTtl = tonumber(ARGV[2]) or 60\nlocal tombstonePayload = ARGV[3]\nlocal incoming = cjson.decode(tombstonePayload)\nlocal incomingVersion = tonumber(incoming.version) or 0\n\nlocal existingRaw = redis.call(\"GET\", driverPosKey)\nif existingRaw then\n  local existing = cjson.decode(existingRaw)\n  local existingVersion = tonumber(existing.version) or 0\n  if existingVersion > incomingVersion then\n    return 0 -- Stale offline request rejected\n  end\n\n  local cellKey = existing.cellKey\n  if cellKey and cellKey ~= \"\" then\n    pcall(redis.call, \"SREM\", cellKey, driverId)\n  end\nend\n\nredis.call(\"SET\", driverPosKey, tombstonePayload, \"EX\", tombstoneTtl)\nreturn 1\n";
 export interface DispatchEngineOptions {
     redisClient?: RedisCommandClient;
     routeCostProvider?: RouteCostProvider;
@@ -179,7 +179,11 @@ export declare class DispatchEngine {
      */
     getDriversInCell(cityId: string, cellId: TriHexId): Promise<string[]>;
     /**
-     * Finds, ranks, and dispatches the optimal drivers for a pickup request using 3-Tier dispatch.
+     * Finds, ranks, and dispatches candidate drivers for a pickup request using 3-Tier candidate generation and evaluation:
+     *  - Tier 1: High-recall spatial candidate generation.
+     *  - Tier 2: Road network routing & turn-by-turn ETA evaluation of retained candidates.
+     *  - Tier 3: Dispatch scoring optimization.
+     * Note: The final routed candidate is optimal within the retained candidate pool.
      */
     findCandidates(query: CandidateQuery): Promise<CandidateScoring[]>;
 }

@@ -5,11 +5,16 @@ export interface RecallMetrics {
     scenarioName: string;
     totalFleetSize: number;
     retrievedCount: number;
+    recallAt1: number;
     recallAt5: number;
     recallAt10: number;
     recallAt25: number;
     recallAt50: number;
     recallAt100: number;
+    mrr: number;
+    etaRegretSeconds: number;
+    relativeEtaRegretPct: number;
+    falseNegativeCount: number;
 }
 export interface ScenarioResult {
     metrics: RecallMetrics;

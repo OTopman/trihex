@@ -8,7 +8,12 @@
     "build": "tsc",
     "test": "ts-node -T test/trihex.test.ts && ts-node -T test/trihex-enterprise.test.ts && ts-node -T test/trihex-audit-proofs.test.ts && ts-node -T test/trihex-dispatch.test.ts && ts-node -T test/trihex-adversarial-audit.ts && ts-node -T test/trihex-dual.test.ts && ts-node -T test/trihex-candidate-recall.test.ts && ts-node -T test/trihex-concurrency.test.ts",
     "test:massive": "ts-node -T test/trihex-massive-scale.test.ts",
+    "test:redis-integration": "ts-node -T test/trihex-redis-live-cluster.test.ts",
+    "test:real-road-recall": "ts-node -T test/trihex-real-road-recall.test.ts",
+    "test:voronoi-oracle": "ts-node -T test/independent-voronoi-oracle.ts",
+    "test:concurrency-scaling": "ts-node -T test/trihex-concurrency-scaling.test.ts",
     "benchmark": "ts-node -T benchmarks/benchmark.ts",
+    "benchmark:independent": "ts-node -T benchmarks/independent-benchmark.ts",
     "prepublishOnly": "npm run build && npm test"
   },
   "repository": {
@@ -40,7 +45,9 @@
   "author": "Temitope Okunlola",
   "license": "MIT",
   "devDependencies": {
+    "@types/ioredis": "^4.28.10",
     "@types/node": "^22.13.0",
+    "ioredis": "^6.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   }

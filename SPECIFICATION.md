@@ -47,11 +47,30 @@ The maximum forward-inverse roundtrip error across 1,000,000 global points is $<
 
 ## 3. Primal Triangular Quadtree & 1:4 Subdivision
 
-At resolution $R \in [0, 15]$, each icosahedron face is subdivided into $N^2 = 4^R$ micro-triangles ($N = 2^R$).
-- **Resolution 0**: 20 master faces (~7,053 km edge length).
-- **Resolution 9**: 5,242,880 cells per face, 104,857,600 globally (~1.5 km diameter, ideal for urban ride dispatch).
-- **Resolution 14**: ~1.4 meter resolution (sub-meter vehicle tracking).
-- **Resolution 15**: ~0.7 meter resolution (maximum supported).
+At resolution $R \in [0, 15]$, each icosahedron face is subdivided into $N^2 = 4^R$ micro-triangles ($N = 2^R$), totaling $F(R) = 20 \cdot 4^R$ triangles globally.
+
+### Resolution Metadata & Quantization Extents
+
+The DGGS distinguishes between **projection numerical precision** ($< 0.0006\text{ mm}$ roundtrip error) and **cell geometric extent / quantization error** (geodesic distance from a point to its cell centroid):
+
+| Resolution | Number of Cells | Typical Cell Area | Edge Length (approx) | Circumradius | Max Quantization Error |
+|:---|:---|:---|:---|:---|:---|
+| 0 | 20 | 25,503,600 km² | 7,000.0 km | 4,041.5 km | 4,647.7 km |
+| 1 | 80 | 6,375,900 km² | 3,500.0 km | 2,020.7 km | 2,323.8 km |
+| 2 | 320 | 1,593,975 km² | 1,750.0 km | 1,010.4 km | 1,161.9 km |
+| 3 | 1,280 | 398,493.8 km² | 875.0 km | 505.2 km | 581.0 km |
+| 4 | 5,120 | 99,623.4 km² | 437.5 km | 252.6 km | 290.5 km |
+| 5 | 20,480 | 24,905.9 km² | 218.7 km | 126.3 km | 145.2 km |
+| 6 | 81,920 | 6,226.5 km² | 109.4 km | 63.1 km | 72.6 km |
+| 7 | 327,680 | 1,556.6 km² | 54.7 km | 31.6 km | 36.3 km |
+| 8 | 1,310,720 | 389.2 km² | 27.3 km | 15.8 km | 18.2 km |
+| 9 | 5,242,880 | 97.3 km² | 13.7 km | 7.9 km | 9.1 km |
+| 10 | 20,971,520 | 24.3 km² | 6.8 km | 3.9 km | 4.5 km |
+| 11 | 83,886,080 | 6.1 km² | 3.4 km | 2.0 km | 2.3 km |
+| 12 | 335,544,320 | 1.5 km² | 1.7 km | 986.7 m | 1.1 km |
+| 13 | 1,342,177,280 | 380,033 m² | 854.5 m | 493.3 m | 567.3 m |
+| 14 | 5,368,709,120 | 95,008 m² | 427.2 m | 246.7 m | 283.7 m |
+| 15 | 21,474,836,480 | 23,752 m² | 213.6 m | 123.3 m | 141.8 m |
 
 ### Hierarchical Morton Coding
 At each subdivision step, an equilateral triangle is partitioned into 4 congruent sub-triangles (3 pointing up, 1 central inverted triangle pointing down) assigned a 2-bit quadrant index:
@@ -173,4 +192,4 @@ This distributes a megacity's workload across multiple Redis Cluster slots while
 - **Multi-Tier Retrieval**:
   - Tier 1: Concentric triangular disk retrieval (`cellDisk`) pre-ranking up to 50 candidates by geodesic distance.
   - Tier 2: Turn-by-turn road routing via `RouteCostProvider` (OSRM/Valhalla) on top 15-25 candidates.
-  - Tier 3: Multi-objective candidate ranking returning optimal top $K$ drivers.
+  - Tier 3: Multi-objective candidate ranking returning optimal top $K$ drivers from within the retained candidate pool.

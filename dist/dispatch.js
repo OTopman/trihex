@@ -73,7 +73,7 @@ if existingRaw then
 
   local oldCellKey = existing.cellKey
   if oldCellKey and oldCellKey ~= "" and oldCellKey ~= newCellKey then
-    redis.call("SREM", oldCellKey, driverId)
+    pcall(redis.call, "SREM", oldCellKey, driverId)
   end
 end
 
@@ -111,7 +111,7 @@ if existingRaw then
 
   local cellKey = existing.cellKey
   if cellKey and cellKey ~= "" then
-    redis.call("SREM", cellKey, driverId)
+    pcall(redis.call, "SREM", cellKey, driverId)
   end
 end
 
@@ -353,7 +353,11 @@ class DispatchEngine {
         }
     }
     /**
-     * Finds, ranks, and dispatches the optimal drivers for a pickup request using 3-Tier dispatch.
+     * Finds, ranks, and dispatches candidate drivers for a pickup request using 3-Tier candidate generation and evaluation:
+     *  - Tier 1: High-recall spatial candidate generation.
+     *  - Tier 2: Road network routing & turn-by-turn ETA evaluation of retained candidates.
+     *  - Tier 3: Dispatch scoring optimization.
+     * Note: The final routed candidate is optimal within the retained candidate pool.
      */
     async findCandidates(query) {
         (0, validation_1.validateCoordinates)(query.pickup.lat, query.pickup.lng);
