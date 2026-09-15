@@ -38,5 +38,10 @@
     "mobility"
   ],
   "author": "Temitope Okunlola",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
+  }
 }
