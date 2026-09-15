@@ -31,6 +31,7 @@ export interface HexDual {
 export interface EffectiveDistanceParams {
     alpha?: number;
     beta?: number;
+    barrierPenaltyMeters?: number;
 }
 /**
  * 64-bit Bitfield Layout Constants (Pure Canonical 63-Bit Non-Negative Representation)

@@ -51,3 +51,7 @@ export declare function cellToLatLng(id: TriHexId): GeoCoord;
  * Returns the 3 boundary vertices of the triangular cell on the unit sphere
  */
 export declare function cellToBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord];
+/**
+ * Canonical alias for cellToBoundary: returns the 3 boundary vertices of the triangular cell on the unit sphere.
+ */
+export declare const getCellBoundary: typeof cellToBoundary;

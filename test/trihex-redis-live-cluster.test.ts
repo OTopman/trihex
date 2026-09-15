@@ -14,7 +14,7 @@
 
 const Redis = require('ioredis');
 import * as assert from 'assert';
-import { performance } from 'perf_hooks';
+import { monitorEventLoopDelay, performance } from 'perf_hooks';
 import {
   formatCellKey,
   formatDriverKey,
@@ -149,6 +149,10 @@ async function runLiveRedisClusterTests() {
   console.log(`  ✓ KEYS[1] (${newCellKey}) slot: ${cellSlot}`);
   console.log(`  ✓ KEYS[2] (${driverKey}) slot: ${driverSlot}`);
   assert.strictEqual(cellSlot, driverSlot, 'KEYS[1] and KEYS[2] MUST hash to the exact same cluster slot via hash tag');
+
+  // Clean test keys from previous runs
+  await cluster.del(newCellKey);
+  await cluster.del(driverKey);
 
   // Execute MIGRATE_DRIVER_LUA on real cluster with hash-tagged keys
   const payload1 = JSON.stringify({
@@ -309,12 +313,15 @@ async function runLiveRedisClusterTests() {
 
   // TEST 6: High-Density Hotspot Latency Profiling
   console.log('\n▶ Test 6: High-Density Hotspot Latency Profiling (1,000 Live Updates)');
+  const runId = Date.now();
   const hotspotCell = TriHex.latLngToCell(40.7580, -73.9855, 7); // Times Square hotspot
   const hotspotCellKey = formatCellKey('nyc', hotspotCell);
+  // Clear any residual keys from previous test runs
+  await cluster.del(hotspotCellKey);
   const latencies: number[] = [];
 
   for (let i = 0; i < 1000; i++) {
-    const driverId = `hotspot_drv_${i}`;
+    const driverId = `hotspot_${runId}_${i}`;
     const dKey = formatDriverKey('nyc', driverId, hotspotCell);
     const pLoad = JSON.stringify({
       driverId,
@@ -347,6 +354,69 @@ async function runLiveRedisClusterTests() {
   const activeCount = await cluster.scard(hotspotCellKey);
   console.log(`  ✓ Hotspot cell driver set size: ${activeCount} active drivers`);
   assert.strictEqual(activeCount, 1000, 'All 1,000 drivers must be in hotspot cell set');
+
+  // TEST 7: Extreme Hotspot Load Test & Bounded Retrieval (5,000 drivers in a single cell)
+  console.log('\n▶ Test 7: Extreme Hotspot Load Test & Bounded Retrieval (5,000 Drivers/Cell)');
+  const extremeHotspotCell = TriHex.latLngToCell(40.7505, -73.9934, 8); // Penn Station Hotspot
+  const extremeCellKey = formatCellKey('nyc', extremeHotspotCell);
+  // Clear any residual keys from previous test runs
+  await cluster.del(extremeCellKey);
+
+  const ald = monitorEventLoopDelay({ resolution: 20 });
+  ald.enable();
+
+  // Ingest 5,000 drivers via pipelined Lua migrations
+  const BATCH_SIZE = 500;
+  const TOTAL_HOTSPOT_DRIVERS = 5000;
+  const ingestStart = performance.now();
+
+  for (let b = 0; b < TOTAL_HOTSPOT_DRIVERS; b += BATCH_SIZE) {
+    const pipeline = cluster.pipeline();
+    for (let i = b; i < b + BATCH_SIZE; i++) {
+      const driverId = `penn_${runId}_${i}`;
+      const dKey = formatDriverKey('nyc', driverId, extremeHotspotCell);
+      const pLoad = JSON.stringify({
+        driverId,
+        cityId: 'nyc',
+        lat: 40.7505 + Math.sin(i) * 0.002,
+        lng: -73.9934 + Math.cos(i) * 0.002,
+        cellId: extremeHotspotCell.toString(),
+        version: 1,
+      });
+      pipeline.eval(MIGRATE_DRIVER_LUA, 2, extremeCellKey, dKey, driverId, 300, 60, pLoad);
+    }
+    await pipeline.exec();
+  }
+
+  const ingestElapsed = performance.now() - ingestStart;
+  const extremeCount = await cluster.scard(extremeCellKey);
+  assert.strictEqual(extremeCount, TOTAL_HOTSPOT_DRIVERS, 'All 5,000 drivers must be in extreme hotspot set');
+
+  // Benchmark Bounded Retrieval (SRANDMEMBER 250)
+  const boundedLatencies: number[] = [];
+  for (let q = 0; q < 100; q++) {
+    const t0 = performance.now();
+    const sample = await cluster.srandmember(extremeCellKey, 250);
+    boundedLatencies.push(performance.now() - t0);
+    assert.strictEqual(sample.length, 250, 'Bounded retrieval must return exactly 250 drivers');
+  }
+
+  boundedLatencies.sort((a, b) => a - b);
+  const bp50 = computePercentile(boundedLatencies, 50);
+  const bp95 = computePercentile(boundedLatencies, 95);
+  const bp99 = computePercentile(boundedLatencies, 99);
+  const bp999 = computePercentile(boundedLatencies, 99.9);
+
+  ald.disable();
+  const maxLagMs = ald.max / 1e6;
+
+  console.log(`  ✓ Successfully ingested ${TOTAL_HOTSPOT_DRIVERS} drivers into single cell in ${ingestElapsed.toFixed(0)} ms (${((TOTAL_HOTSPOT_DRIVERS / ingestElapsed) * 1000).toFixed(0)} updates/sec).`);
+  console.log(`  ✓ Bounded Candidate Retrieval (SRANDMEMBER limit=250) across 5,000-driver hotspot:`);
+  console.log(`    - p50:   ${bp50.toFixed(2)} ms`);
+  console.log(`    - p95:   ${bp95.toFixed(2)} ms`);
+  console.log(`    - p99:   ${bp99.toFixed(2)} ms`);
+  console.log(`    - p99.9: ${bp999.toFixed(2)} ms`);
+  console.log(`    - Max Event-Loop Lag: ${maxLagMs.toFixed(2)} ms (Bounded memory, zero runaway latency)`);
 
   // Clean up
   await cluster.quit();

@@ -31,6 +31,8 @@ export interface CandidateScoring {
     routeDurationSeconds?: number;
     finalScore: number;
     rank: number;
+    routingFallback?: boolean;
+    barrierPenalized?: boolean;
 }
 /**
  * Minimal Redis command interface to support any Redis client (ioredis, node-redis, cluster)
@@ -40,6 +42,7 @@ export interface RedisCommandClient {
     sadd(key: string, ...members: string[]): Promise<number>;
     srem(key: string, ...members: string[]): Promise<number>;
     smembers(key: string): Promise<string[]>;
+    srandmember?(key: string, count: number): Promise<string[]>;
     sunion?(...keys: string[]): Promise<string[]>;
     get(key: string): Promise<string | null>;
     mget?(...keys: string[]): Promise<(string | null)[]>;
@@ -98,6 +101,8 @@ export interface DispatchEngineOptions {
     tier1CandidateLimit?: number;
     tier2CandidateLimit?: number;
     maxCellsPerSearch?: number;
+    maxDriversPerCell?: number;
+    rejectCrossBarrierFallback?: boolean;
     timeoutMs?: number;
 }
 export interface CandidateQuery {
@@ -115,9 +120,8 @@ export interface CandidateQuery {
 export declare class InMemoryDriverRegistry {
     private readonly cellDrivers;
     private readonly driverPositions;
-    private getDriverCanonicalKey;
     update(pos: DriverPosition): boolean;
-    remove(cityId: string, driverId: string, currentCellId?: TriHexId, version?: number): boolean;
+    remove(cityId: string, driverId: string, cellId?: TriHexId, version?: number): boolean;
     getDriversInCell(cellKey: string): string[];
     getDriverPosition(driverKey: string): DriverPosition | null;
     clear(): void;
@@ -160,6 +164,8 @@ export declare class DispatchEngine {
     private readonly tier1Limit;
     private readonly tier2Limit;
     private readonly maxCells;
+    private readonly maxDriversPerCell;
+    private readonly rejectCrossBarrierFallback;
     constructor(options?: DispatchEngineOptions);
     /**
      * Updates driver position atomically with authoritative monotonic version protection.

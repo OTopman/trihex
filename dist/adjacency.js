@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_CELL_RING_RADIUS = void 0;
+exports.getCellDisk = exports.MAX_CELL_RING_RADIUS = void 0;
 exports.getCellNeighbors = getCellNeighbors;
 exports.cellDisk = cellDisk;
 const constants_1 = require("./constants");
@@ -133,3 +133,7 @@ function cellDisk(originId, radius) {
     }
     return cells;
 }
+/**
+ * Canonical alias for cellDisk: returns the graph disk of triangular edge-adjacent cells within graph distance radius k.
+ */
+exports.getCellDisk = cellDisk;

@@ -400,7 +400,34 @@ async function runDispatchTests() {
   assert(fallbackCandidates.length === 1, 'Engine must recover from routing failure and return candidates via Tier 1 fallback');
   assert(fallbackCandidates[0].driverId === 'drv_resilient_1', 'Candidate must match registered driver');
   assert(fallbackCandidates[0].estimatedDurationSeconds > 0, 'Must have valid fallback geodesic duration');
-  console.log('  ✓ Verified graceful Tier 1 geodesic fallback when Tier 2 routing engine experiences outage.');
+  assert(fallbackCandidates[0].routingFallback === true, 'Must indicate routingFallback was applied');
+
+  // Test 6B: Safe Routing Fallback with Barrier Penalty and Strict Policy Rejection
+  const islandCell = TriHex.latLngToCell(6.4500, 3.4000, 10, 101); // Lagos Island Cluster 101
+  const mainlandCell = TriHex.latLngToCell(6.5100, 3.3750, 10, 102); // Lagos Mainland Cluster 102
+  const strictEngine = TriHex.createDispatchEngine({
+    routeCostProvider: failingProvider,
+    rejectCrossBarrierFallback: true,
+  });
+  await strictEngine.updateDriverPosition({
+    driverId: 'drv_across_river',
+    lat: 6.5100,
+    lng: 3.3750,
+    cellId: mainlandCell,
+    cityId: 'lagos',
+    version: 1,
+    status: 'AVAILABLE',
+  });
+  const rejectedCrossBarrier = await strictEngine.findCandidates({
+    pickup: { lat: 6.4500, lng: 3.4000 },
+    pickupCellId: islandCell,
+    cityId: 'lagos',
+    initialRadius: 1,
+    maxRadius: 4,
+    requiredStatus: 'AVAILABLE',
+  });
+  assert(!rejectedCrossBarrier.some(c => c.driverId === 'drv_across_river'), 'Strict safe fallback must reject cross-barrier candidate when routing is down');
+  console.log('  ✓ Verified graceful Tier 1 safe fallback (tagged routingFallback, applied barrier penalty, and enforced strict cross-barrier rejection policy).');
 
   console.log('\n🏆 ALL MOBILITY DISPATCH TESTS COMPLETED WITH ZERO DEFECTS!\n');
 }

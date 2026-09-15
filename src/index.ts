@@ -1,4 +1,4 @@
-import { cellDisk, getCellNeighbors } from './adjacency';
+import { cellDisk, getCellDisk, getCellNeighbors } from './adjacency';
 import { compactCells, uncompactCells } from './compaction';
 import {
   DispatchEngine,
@@ -14,6 +14,9 @@ import {
   hexDualToGeoJSON,
 } from './geojson';
 import {
+  getDualBoundary,
+  getDualDisk,
+  getDualNeighbors,
   getHexDual,
   getHexDualBoundary,
   getHexNeighbors,
@@ -53,6 +56,7 @@ import {
   cellToChildrenRange,
   cellToLatLng,
   cellToParent,
+  getCellBoundary,
   packTriHexId,
   unpackTriHexId,
 } from './triangle-quadtree';
@@ -162,6 +166,20 @@ export class TriHex {
   }
 
   /**
+   * Canonical alias for cellDisk: returns the triangular edge-adjacency graph disk within radius k.
+   */
+  public static getCellDisk(originId: TriHexId, radius: number): TriHexId[] {
+    return getCellDisk(originId, radius);
+  }
+
+  /**
+   * Canonical alias for cellToBoundary: returns the 3 spherical boundary vertices of the triangular cell.
+   */
+  public static getCellBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord] {
+    return getCellBoundary(id);
+  }
+
+  /**
    * Constructs the genuine spherical Voronoi dual cell (HexDual) for this cell.
    * Returns 6 spherical circumcenter vertices for regular hexagons, and 5 for the 12 pentagonal singularities.
    */
@@ -178,6 +196,14 @@ export class TriHex {
   }
 
   /**
+   * Canonical alias for getHexNeighbors: returns exact neighbors in the spherical Voronoi dual lattice.
+   * Degree 6 for regular hexagons, degree 5 for the 12 pentagonal Euler singularities.
+   */
+  public static getDualNeighbors(id: TriHexId): TriHexId[] {
+    return getDualNeighbors(id);
+  }
+
+  /**
    * Returns the exact spherical Voronoi boundary coordinates of the dual cell
    * (6 vertices for regular hexagons, 5 vertices for pentagons).
    */
@@ -186,11 +212,26 @@ export class TriHex {
   }
 
   /**
+   * Canonical alias for getHexDualBoundary: returns the perimeter coordinates of the spherical Voronoi dual cell.
+   * (6 vertices for regular hexagons, 5 vertices for pentagons).
+   */
+  public static getDualBoundary(id: TriHexId): GeoCoord[] {
+    return getDualBoundary(id);
+  }
+
+  /**
    * Expands a breadth-first search on the hexagonal Voronoi dual graph up to radius k.
    * Produces 7 cells at radius 1, and 19 cells at radius 2 for regular hexagonal regions.
    */
   public static hexRing(originId: TriHexId, radius: number): TriHexId[] {
     return hexRing(originId, radius);
+  }
+
+  /**
+   * Canonical alias for hexRing: expands a BFS disk on the spherical Voronoi dual graph up to radius k.
+   */
+  public static getDualDisk(originId: TriHexId, radius: number): TriHexId[] {
+    return getDualDisk(originId, radius);
   }
 
   /**

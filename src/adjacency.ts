@@ -149,3 +149,8 @@ export function cellDisk(originId: TriHexId, radius: number): TriHexId[] {
 
   return cells;
 }
+
+/**
+ * Canonical alias for cellDisk: returns the graph disk of triangular edge-adjacent cells within graph distance radius k.
+ */
+export const getCellDisk = cellDisk;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_HEX_RING_RADIUS = exports.MAX_CELL_RING_RADIUS = exports.getCellNeighbors = exports.cellDisk = void 0;
+exports.getDualBoundary = exports.getDualDisk = exports.getDualNeighbors = exports.MAX_HEX_RING_RADIUS = exports.MAX_CELL_RING_RADIUS = exports.getCellNeighbors = exports.cellDisk = void 0;
 exports.packDualCellId = packDualCellId;
 exports.isDualCellId = isDualCellId;
 exports.unpackDualCellId = unpackDualCellId;
@@ -599,3 +599,18 @@ function hexRing(originId, radius) {
     }
     return cells;
 }
+/**
+ * Canonical alias for getHexNeighbors: returns exact neighbors in the spherical Voronoi dual lattice.
+ * Degree 6 for regular hexagons, degree 5 for the 12 pentagonal Euler singularities.
+ */
+exports.getDualNeighbors = getHexNeighbors;
+/**
+ * Canonical alias for hexRing: expands a BFS disk on the spherical Voronoi dual graph up to radius k.
+ * For regular hexagonal regions: radius 0 = 1, radius 1 = 7, radius 2 = 19 (exact 1 + 3k(k+1) formula).
+ */
+exports.getDualDisk = hexRing;
+/**
+ * Canonical alias for getHexDualBoundary: returns the perimeter coordinates of the spherical Voronoi dual cell.
+ * (6 vertices for regular hexagons, 5 vertices for pentagonal Euler singularities).
+ */
+exports.getDualBoundary = getHexDualBoundary;

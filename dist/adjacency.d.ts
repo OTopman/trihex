@@ -20,3 +20,7 @@ export declare function getCellNeighbors(id: TriHexId): [TriHexId, TriHexId, Tri
  * At radius 2: 10 cells (exact triangular progression)
  */
 export declare function cellDisk(originId: TriHexId, radius: number): TriHexId[];
+/**
+ * Canonical alias for cellDisk: returns the graph disk of triangular edge-adjacent cells within graph distance radius k.
+ */
+export declare const getCellDisk: typeof cellDisk;

@@ -92,6 +92,7 @@ function effectiveDistance(idA, idB, params = {}, costMatrix, registry = exports
     // Fallback: Check if cells are separated across different topology clusters
     // (e.g., rivers, highway barriers). Apply cross-cluster detour penalty if different.
     const samePartition = isSameCluster(idA, idB, registry);
-    const clusterPenalty = samePartition ? 0 : 3000; // 3km equivalent detour penalty for crossing barrier
+    const penalty = params.barrierPenaltyMeters ?? 3000; // Default 3km equivalent detour penalty for crossing barrier
+    const clusterPenalty = samePartition ? 0 : penalty;
     return alpha * geoDist + beta * clusterPenalty;
 }

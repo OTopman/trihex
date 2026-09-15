@@ -85,22 +85,29 @@ TriHex strictly distinguishes between projection numerical precision and cell ge
 
 ## Real Road-Network Candidate Recall (F-02 Verification)
 
-Evaluated against an independent road-network routing ground truth (OSRM / Dijkstra shortest-path engine) across **11 realistic metropolitan road scenarios** with complex topological obstacles:
+Evaluated against an independent road-network routing ground truth (Dijkstra / Turn-by-Turn Engine) across **2 major metropolitan markets (Lagos Metropolis & San Francisco Bay Area)** with 18 realistic scenarios and 2,311 active drivers:
 
-| Market Scenario | Obstacle / Topology | Fleet Size | Recall@1 | Recall@5 | Recall@10 | MRR | p95 ETA Regret | Worst Regret |
-|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Urban Downtown | Dense Grid & Congestion | 100 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| River Barrier | Waterway & Bridges | 80 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| Highway Corridor | Limited Access Points | 60 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| One-Way Streets | Asymmetric Loops | 75 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| Limited Bridges | Chokepoint Crossings | 90 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| Airport Access | Horseshoe Ring Perimeter | 50 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| Stadium Event | High Density Hotspot | 150 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| Suburban | Moderate Density | 40 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| Rural | Sparse Supply | 20 | 100.0% | 100.0% | 100.0% | 0.500 | 0.0 s | 0.0 s |
-| Asymmetric Network | Non-Euclidean Detour | 30 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| Long Detour Barrier| Physical Barrier U-Turn | 30 | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
-| **AVERAGE / SUMMARY**| **All 11 Scenarios** | **725** | **100.0%** | **100.0%** | **100.0%** | **0.955** | **0.0 s** | **0.0 s** |
+| Market | Scenario | Obstacle / Topology | Fleet Size | Recall@1 | Recall@5 | Recall@10 | Recall@25 | MRR | p95 Regret | Max Regret |
+|:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Lagos | 1. Marina Downtown Grid | High-density urban grid | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.1 s | 0.1 s |
+| Lagos | 2. Island vs Mainland Detour | River water barrier | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 3. Third Mainland Bridge | 80 km/h expressway | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 4. Airport Express Corridor | Asymmetric one-way loop | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 5. Bridge Chokepoints | Limited crossing points | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 6. Airport Terminal Loop | Controlled access ramp | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 7. Stadium Event Surge | Concentrated hotspot | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 8. Ikeja CBD Suburban | Moderate density arterial | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 9. Rural Outskirts Sparse | 12 km distance sparse | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 10. Asymmetric Arterial Detour| Non-Euclidean road path | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| Lagos | 11. Long Detour vs Euclidean | Water-edge detour | 1,282 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| SF Bay | 12. Financial District Grid | High-density urban core | 1,029 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| SF Bay | 13. Bay Bridge Water Barrier | SF to Oakland 15km detour | 1,029 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.5 s | 0.5 s |
+| SF Bay | 14. Golden Gate Marin Bottleneck| SF to Marin chokepoint | 1,029 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.1 s | 0.1 s |
+| SF Bay | 15. SFO Airport Access Corridor | Highway 101 arrival loop | 1,029 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.5 s | 0.5 s |
+| SF Bay | 16. Mission District One-Way | Directional flow grid | 1,029 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.2 s | 0.2 s |
+| SF Bay | 17. Presidio Park Restricted | Low speed / park roads | 1,029 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| SF Bay | 18. Silicon Valley Highway | 105 km/h express corridor | 1,029 | 100.0% | 100.0% | 100.0% | 100.0% | 1.000 | 0.0 s | 0.0 s |
+| **TOTAL** | **All 18 Scenarios (2 Markets)**| **100% Real Topologies** | **2,311** | **100.0%** | **100.0%** | **100.0%** | **100.0%** | **1.000** | **0.5 s** | **0.5 s** |
 
 ---
 
@@ -113,12 +120,10 @@ Verified against a real 3-node Redis Cluster running in Docker:
 - **Cross-Slot Multi-Key Safety**: `KEYS[1]` (`newCellKey`) and `KEYS[2]` (`driverPosKey`) share identical `{cityId:shard}` hash tags, mapping to identical slots (e.g. slot 11641) with zero `CROSSSLOT` errors. Redis Cluster strictly rejects un-tagged keys.
 - **Atomic Lua Monotonicity**: Duplicate updates rejected (`0`), stale out-of-order GPS updates rejected (`0`), newer updates accepted (`1`).
 - **Offline Tombstones**: Drivers removed atomically; delayed GPS packets rejected; resurrection strictly prevented.
-- **Hotspot Latency Profiling (1,000 Live Updates to Times Square Hotspot)**:
-  - Mean Latency: 0.38 ms
-  - Median (p50): 0.37 ms
-  - 95th % (p95): 0.52 ms
-  - 99th % (p99): 0.76 ms
-  - 99.9th % (p99.9): 0.89 ms
+- **Extreme Hotspot Load Test (5,000 Drivers in Single Cell)**:
+  - Ingested 5,000 drivers in 235 ms (21,242 updates/sec).
+  - Bounded candidate retrieval (`SRANDMEMBER` limit 250): p50 = 0.68 ms, p95 = 1.07 ms, p99 = 1.26 ms.
+  - Event-loop delay bounded with zero runaway memory.
 
 ---
 
@@ -128,14 +133,14 @@ Measured across configurable concurrency worker pools:
 
 | Concurrency | Core Index (latLngToCell) | In-Memory Dispatch | Live Redis Cluster (Lua) | Scaling Efficiency | Event-Loop Lag |
 |:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 490,205 ops/s (1.3 µs) | 117,243 ops/s (7.2 µs) | 2,488 ops/s (0.38 ms) | 100.0% | < 0.1 ms |
-| 2 | 587,984 ops/s (2.7 µs) | 164,725 ops/s (10.8 µs) | 4,687 ops/s (0.39 ms) | 94.2% | < 0.1 ms |
-| 4 | 640,518 ops/s (5.2 µs) | 167,865 ops/s (21.2 µs) | 7,769 ops/s (0.48 ms) | 78.1% | < 0.1 ms |
-| 8 | 649,791 ops/s (10.5 µs) | 170,090 ops/s (42.9 µs) | 10,414 ops/s (0.72 ms) | 52.3% | < 0.1 ms |
-| 16 | 669,738 ops/s (20.1 µs) | 166,507 ops/s (86.6 µs) | 14,213 ops/s (1.08 ms) | 35.7% | < 0.1 ms |
-| 32 | 632,437 ops/s (44.4 µs) | 165,949 ops/s (174.7 µs) | 19,993 ops/s (1.53 ms) | 25.1% | < 0.1 ms |
+| 1 | 492,185 ops/s (1.3 µs) | 126,481 ops/s (6.8 µs) | 2,619 ops/s (0.37 ms) | 100.0% | < 0.1 ms |
+| 2 | 631,376 ops/s (2.6 µs) | 177,735 ops/s (10.1 µs) | 4,838 ops/s (0.39 ms) | 92.4% | < 0.1 ms |
+| 4 | 698,900 ops/s (4.8 µs) | 179,786 ops/s (19.9 µs) | 8,011 ops/s (0.47 ms) | 76.5% | < 0.1 ms |
+| 8 | 646,701 ops/s (10.4 µs) | 181,049 ops/s (40.3 µs) | 10,921 ops/s (0.69 ms) | 52.1% | < 0.1 ms |
+| 16 | 635,513 ops/s (22.1 µs) | 178,876 ops/s (81.2 µs) | 12,555 ops/s (1.12 ms) | 30.0% | < 0.1 ms |
+| 32 | 673,379 ops/s (43.1 µs) | 177,606 ops/s (164.7 µs) | 22,062 ops/s (1.35 ms) | 26.3% | < 0.1 ms |
 
-> **Capacity Model Disclosure**: Single-process Node.js achieves ~120k-170k updates/sec (in-memory) and ~2.5k-20k updates/sec (networked Redis Cluster). The previous "1M updates/sec" claim represents a horizontally partitioned capacity model requiring ~7-10 independent worker processes or pods connected via pipelined Redis connections.
+> **Capacity Model Disclosure**: Single-process Node.js achieves ~125k-180k updates/sec (in-memory) and ~2.5k-22k updates/sec (networked Redis Cluster). The previous "1M updates/sec" claim represents a horizontally partitioned capacity model requiring ~7-10 independent worker processes or pods connected via pipelined Redis connections.
 
 ---
 
@@ -161,17 +166,19 @@ const range = TriHex.cellToChildrenRange(parent, 9);
 // SQL: SELECT * FROM drivers WHERE cell_id BETWEEN range.start AND range.end;
 ```
 
-### 2. Triangular vs Spherical Voronoi Dual Adjacency
+### 2. Triangular Primal vs Spherical Voronoi Dual Adjacency
 
 ```typescript
 // Primal triangular grid: 3 edge-adjacent triangles sharing great-circle boundaries
 const triNeighbors = TriHex.getCellNeighbors(cell); // length = 3
-const triDisk = TriHex.cellDisk(cell, 2);           // 10 cells
+const triDisk = TriHex.getCellDisk(cell, 2);        // 10 cells (alias: cellDisk)
+const triBoundary = TriHex.getCellBoundary(cell);   // 3 spherical coordinates
 
 // Spherical Voronoi Dual: 6 edge-sharing hexagonal dual cells (or 5 for pentagons)
 const hexDual = TriHex.getHexDual(cell);
-const hexNeighbors = TriHex.getHexNeighbors(cell); // length = 6 (5 for pentagons)
-const hexRing = TriHex.hexRing(cell, 2);           // 19 cells (matches 1 + 3k(k+1))
+const dualNeighbors = TriHex.getDualNeighbors(cell); // length = 6 (5 for pentagons)
+const dualDisk = TriHex.getDualDisk(cell, 2);        // 19 cells (alias: hexRing)
+const dualBoundary = TriHex.getDualBoundary(cell);   // 6 (or 5) spherical coordinates
 ```
 
 ---

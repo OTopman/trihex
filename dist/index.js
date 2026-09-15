@@ -101,6 +101,18 @@ class TriHex {
         return (0, adjacency_1.cellDisk)(originId, radius);
     }
     /**
+     * Canonical alias for cellDisk: returns the triangular edge-adjacency graph disk within radius k.
+     */
+    static getCellDisk(originId, radius) {
+        return (0, adjacency_1.getCellDisk)(originId, radius);
+    }
+    /**
+     * Canonical alias for cellToBoundary: returns the 3 spherical boundary vertices of the triangular cell.
+     */
+    static getCellBoundary(id) {
+        return (0, triangle_quadtree_1.getCellBoundary)(id);
+    }
+    /**
      * Constructs the genuine spherical Voronoi dual cell (HexDual) for this cell.
      * Returns 6 spherical circumcenter vertices for regular hexagons, and 5 for the 12 pentagonal singularities.
      */
@@ -115,6 +127,13 @@ class TriHex {
         return (0, hex_dual_1.getHexNeighbors)(id);
     }
     /**
+     * Canonical alias for getHexNeighbors: returns exact neighbors in the spherical Voronoi dual lattice.
+     * Degree 6 for regular hexagons, degree 5 for the 12 pentagonal Euler singularities.
+     */
+    static getDualNeighbors(id) {
+        return (0, hex_dual_1.getDualNeighbors)(id);
+    }
+    /**
      * Returns the exact spherical Voronoi boundary coordinates of the dual cell
      * (6 vertices for regular hexagons, 5 vertices for pentagons).
      */
@@ -122,11 +141,24 @@ class TriHex {
         return (0, hex_dual_1.getHexDualBoundary)(id);
     }
     /**
+     * Canonical alias for getHexDualBoundary: returns the perimeter coordinates of the spherical Voronoi dual cell.
+     * (6 vertices for regular hexagons, 5 vertices for pentagons).
+     */
+    static getDualBoundary(id) {
+        return (0, hex_dual_1.getDualBoundary)(id);
+    }
+    /**
      * Expands a breadth-first search on the hexagonal Voronoi dual graph up to radius k.
      * Produces 7 cells at radius 1, and 19 cells at radius 2 for regular hexagonal regions.
      */
     static hexRing(originId, radius) {
         return (0, hex_dual_1.hexRing)(originId, radius);
+    }
+    /**
+     * Canonical alias for hexRing: expands a BFS disk on the spherical Voronoi dual graph up to radius k.
+     */
+    static getDualDisk(originId, radius) {
+        return (0, hex_dual_1.getDualDisk)(originId, radius);
     }
     /**
      * Returns all canonical spherical Voronoi dual cells at the given resolution.

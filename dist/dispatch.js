@@ -6,6 +6,7 @@ exports.formatCellKey = formatCellKey;
 exports.formatDriverKey = formatDriverKey;
 const adjacency_1 = require("./adjacency");
 const icosahedron_1 = require("./icosahedron");
+const network_metric_1 = require("./network-metric");
 const serialization_1 = require("./serialization");
 const triangle_quadtree_1 = require("./triangle-quadtree");
 const validation_1 = require("./validation");
@@ -124,41 +125,38 @@ return 1
 class InMemoryDriverRegistry {
     cellDrivers = new Map();
     driverPositions = new Map();
-    getDriverCanonicalKey(cityId, driverId) {
-        return `${cityId}:${driverId}`;
-    }
     update(pos) {
-        const canonicalKey = this.getDriverCanonicalKey(pos.cityId, pos.driverId);
-        const existing = this.driverPositions.get(canonicalKey);
+        const key = `${pos.cityId}:${pos.driverId}`;
+        const existing = this.driverPositions.get(key);
         if (existing && existing.version >= pos.version) {
-            return false; // Stale or duplicate
+            return false; // Stale or duplicate update rejected
         }
         const newCellKey = formatCellKey(pos.cityId, pos.cellId);
         if (existing && existing.cellKey && existing.cellKey !== newCellKey) {
             this.cellDrivers.get(existing.cellKey)?.delete(pos.driverId);
         }
-        if (!this.cellDrivers.has(newCellKey)) {
-            this.cellDrivers.set(newCellKey, new Set());
+        let drivers = this.cellDrivers.get(newCellKey);
+        if (!drivers) {
+            drivers = new Set();
+            this.cellDrivers.set(newCellKey, drivers);
         }
-        this.cellDrivers.get(newCellKey).add(pos.driverId);
-        this.driverPositions.set(canonicalKey, { ...pos, cellKey: newCellKey });
+        drivers.add(pos.driverId);
+        this.driverPositions.set(key, { ...pos, cellKey: newCellKey });
         return true;
     }
-    remove(cityId, driverId, currentCellId, version) {
-        const canonicalKey = this.getDriverCanonicalKey(cityId, driverId);
-        const existing = this.driverPositions.get(canonicalKey);
-        const tombstoneVer = version ?? (existing ? existing.version + 1 : 1);
-        if (existing && existing.version > tombstoneVer) {
+    remove(cityId, driverId, cellId, version) {
+        const key = `${cityId}:${driverId}`;
+        const existing = this.driverPositions.get(key);
+        const tombstoneVer = version ?? Date.now();
+        if (existing && existing.version >= tombstoneVer) {
             return false;
         }
-        if (existing && existing.cellKey) {
-            this.cellDrivers.get(existing.cellKey)?.delete(driverId);
-        }
-        else if (currentCellId !== undefined) {
+        const currentCellId = cellId ?? existing?.cellId;
+        if (currentCellId !== undefined) {
             const cellKey = formatCellKey(cityId, currentCellId);
             this.cellDrivers.get(cellKey)?.delete(driverId);
         }
-        this.driverPositions.set(canonicalKey, {
+        this.driverPositions.set(key, {
             driverId,
             lat: existing?.lat ?? 0,
             lng: existing?.lng ?? 0,
@@ -254,6 +252,8 @@ class DispatchEngine {
     tier1Limit;
     tier2Limit;
     maxCells;
+    maxDriversPerCell;
+    rejectCrossBarrierFallback;
     constructor(options = {}) {
         this.redis = options.redisClient;
         this.routeCostProvider = options.routeCostProvider;
@@ -265,6 +265,8 @@ class DispatchEngine {
         this.tier1Limit = options.tier1CandidateLimit ?? 50;
         this.tier2Limit = options.tier2CandidateLimit ?? 5;
         this.maxCells = options.maxCellsPerSearch ?? 128;
+        this.maxDriversPerCell = options.maxDriversPerCell ?? 250;
+        this.rejectCrossBarrierFallback = options.rejectCrossBarrierFallback ?? false;
     }
     /**
      * Updates driver position atomically with authoritative monotonic version protection.
@@ -382,10 +384,17 @@ class DispatchEngine {
                 const cellKey = formatCellKey(query.cityId, cell);
                 let driversInCell = [];
                 if (this.redis) {
-                    driversInCell = await this.redis.smembers(cellKey);
+                    if (typeof this.redis.srandmember === 'function') {
+                        driversInCell = await this.redis.srandmember(cellKey, this.maxDriversPerCell);
+                    }
+                    else {
+                        const allMembers = await this.redis.smembers(cellKey);
+                        driversInCell = allMembers.slice(0, this.maxDriversPerCell);
+                    }
                 }
                 else {
-                    driversInCell = this.inMemory.getDriversInCell(cellKey);
+                    const inMem = this.inMemory.getDriversInCell(cellKey);
+                    driversInCell = inMem.slice(0, this.maxDriversPerCell);
                 }
                 for (const dId of driversInCell) {
                     if (!seenDriverIds.has(dId)) {
@@ -445,10 +454,26 @@ class DispatchEngine {
                         routeDurationSeconds: Math.round(cost.durationSeconds),
                         finalScore: cost.durationSeconds,
                         rank: 0,
+                        routingFallback: false,
+                        barrierPenalized: false,
                     };
                 }
                 catch {
-                    // Fallback to Tier 1 estimate if routing fails
+                    // Safe Routing Fallback (Section 29)
+                    // Never blindly fall back to straight-line distance across network barriers.
+                    const sameCluster = (0, network_metric_1.isSameCluster)(cand.pos.cellId, query.pickupCellId);
+                    if (this.rejectCrossBarrierFallback && !sameCluster) {
+                        // Safety policy: reject unreachable cross-barrier candidate when routing is down
+                        return null;
+                    }
+                    // Evaluate topology-aware effective distance with barrier penalties
+                    const effectiveDist = (0, network_metric_1.effectiveDistance)(cand.pos.cellId, query.pickupCellId, {
+                        barrierPenaltyMeters: 5000,
+                    });
+                    const isPenalized = effectiveDist > cand.dist * 1.2 || !sameCluster;
+                    // Conservative circuity factor: 1.6x for urban streets, 2.5x across barrier detours
+                    const circuityFactor = isPenalized ? 2.5 : 1.6;
+                    const fallbackDurationSec = (effectiveDist / this.defaultAverageSpeedMps) * circuityFactor;
                     return {
                         driverId: cand.pos.driverId,
                         lat: cand.pos.lat,
@@ -456,12 +481,16 @@ class DispatchEngine {
                         cellId: cand.pos.cellId,
                         geodesicDistanceMeters: Math.round(cand.dist),
                         estimatedDurationSeconds: Math.round(cand.durationSec),
-                        finalScore: cand.durationSec,
+                        routeDistanceMeters: Math.round(effectiveDist),
+                        routeDurationSeconds: Math.round(fallbackDurationSec),
+                        finalScore: fallbackDurationSec,
                         rank: 0,
+                        routingFallback: true,
+                        barrierPenalized: isPenalized,
                     };
                 }
             });
-            const resolved = await Promise.all(routePromises);
+            const resolved = (await Promise.all(routePromises)).filter((item) => item !== null);
             resolved.sort((a, b) => a.finalScore - b.finalScore);
             const culled = resolved.slice(0, maxResults);
             culled.forEach((item, index) => {
@@ -472,6 +501,13 @@ class DispatchEngine {
         else {
             const culled = tier2Candidates.slice(0, maxResults);
             culled.forEach((cand, index) => {
+                const sameCluster = (0, network_metric_1.isSameCluster)(cand.pos.cellId, query.pickupCellId);
+                const effectiveDist = (0, network_metric_1.effectiveDistance)(cand.pos.cellId, query.pickupCellId, {
+                    barrierPenaltyMeters: 5000,
+                });
+                const isPenalized = effectiveDist > cand.dist * 1.2 || !sameCluster;
+                const circuity = isPenalized ? 2.5 : 1.6;
+                const fallbackDur = (effectiveDist / this.defaultAverageSpeedMps) * circuity;
                 candidates.push({
                     driverId: cand.pos.driverId,
                     lat: cand.pos.lat,
@@ -479,8 +515,12 @@ class DispatchEngine {
                     cellId: cand.pos.cellId,
                     geodesicDistanceMeters: Math.round(cand.dist),
                     estimatedDurationSeconds: Math.round(cand.durationSec),
-                    finalScore: cand.durationSec,
+                    routeDistanceMeters: Math.round(effectiveDist),
+                    routeDurationSeconds: Math.round(fallbackDur),
+                    finalScore: fallbackDur,
                     rank: index + 1,
+                    routingFallback: true,
+                    barrierPenalized: isPenalized,
                 });
             });
         }

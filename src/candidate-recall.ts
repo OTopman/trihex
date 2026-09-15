@@ -1,6 +1,7 @@
 import { DispatchEngine, DriverPosition } from './dispatch';
+import { geodesicDistance } from './icosahedron';
 import { TopologyRoutingProvider } from './routing';
-import { RoadTopology, VersionedRoadGraph } from './topology';
+import { RoadTopology, RouteCost, VersionedRoadGraph } from './topology';
 import { GeoCoord, TriHexId } from './types';
 
 export interface RecallMetrics {
@@ -36,18 +37,41 @@ export async function evaluateCandidateRecall(
   pickupCellId: TriHexId,
   cityId = 'lagos'
 ): Promise<ScenarioResult> {
-  // 1. Compute ground-truth road routing for ALL drivers in fleet
   const pickupPos = topology.locate(pickup);
   const groundTruthScored: { driverId: string; durationSeconds: number; distanceMeters: number }[] = [];
+  const costCache = new Map<string, RouteCost>();
+  const localSpeedMps = (30 * 1000) / 3600;
 
   for (const drv of drivers) {
-    const drvPos = topology.locate({ lat: drv.lat, lng: drv.lng });
-    const cost = topology.estimateCost(drvPos, pickupPos);
-    if (cost.durationSeconds !== Infinity) {
+    const drvCoord = { lat: drv.lat, lng: drv.lng };
+    const drvPos = topology.locate(drvCoord);
+
+    if (drvPos.roadId === pickupPos.roadId) {
+      const localDist = geodesicDistance(drvCoord, pickup);
+      const localDuration = localDist / localSpeedMps;
       groundTruthScored.push({
         driverId: drv.driverId,
-        durationSeconds: cost.durationSeconds,
-        distanceMeters: cost.distanceMeters,
+        durationSeconds: localDuration,
+        distanceMeters: localDist,
+      });
+      continue;
+    }
+
+    const pairKey = `${drvPos.roadId}->${pickupPos.roadId}`;
+    let cost = costCache.get(pairKey);
+    if (!cost) {
+      cost = topology.estimateCost(drvPos, pickupPos);
+      costCache.set(pairKey, cost);
+    }
+    if (cost.durationSeconds !== Infinity) {
+      const accessDist = geodesicDistance(drvCoord, drvPos.coordinate);
+      const egressDist = geodesicDistance(pickupPos.coordinate, pickup);
+      const totalDist = accessDist + cost.distanceMeters + egressDist;
+      const totalDuration = accessDist / localSpeedMps + cost.durationSeconds + egressDist / localSpeedMps;
+      groundTruthScored.push({
+        driverId: drv.driverId,
+        durationSeconds: totalDuration,
+        distanceMeters: totalDist,
       });
     }
   }
@@ -58,8 +82,10 @@ export async function evaluateCandidateRecall(
   const routingProvider = new TopologyRoutingProvider(topology);
   const dispatchEngine = new DispatchEngine({
     routeCostProvider: routingProvider,
-    tier1CandidateLimit: 200,
-    tier2CandidateLimit: 50,
+    tier1CandidateLimit: 500,
+    tier2CandidateLimit: 100,
+    maxCellsPerSearch: 256,
+    maxDriversPerCell: 500,
   });
 
   // Populate drivers

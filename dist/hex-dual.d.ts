@@ -61,3 +61,18 @@ export declare function getHexDualBoundary(id: TriHexId): GeoCoord[];
  *  - radius 2: 19 cells (matching the hexagonal formula 1 + 3k(k+1) = 19)
  */
 export declare function hexRing(originId: TriHexId, radius: number): TriHexId[];
+/**
+ * Canonical alias for getHexNeighbors: returns exact neighbors in the spherical Voronoi dual lattice.
+ * Degree 6 for regular hexagons, degree 5 for the 12 pentagonal Euler singularities.
+ */
+export declare const getDualNeighbors: typeof getHexNeighbors;
+/**
+ * Canonical alias for hexRing: expands a BFS disk on the spherical Voronoi dual graph up to radius k.
+ * For regular hexagonal regions: radius 0 = 1, radius 1 = 7, radius 2 = 19 (exact 1 + 3k(k+1) formula).
+ */
+export declare const getDualDisk: typeof hexRing;
+/**
+ * Canonical alias for getHexDualBoundary: returns the perimeter coordinates of the spherical Voronoi dual cell.
+ * (6 vertices for regular hexagons, 5 vertices for pentagonal Euler singularities).
+ */
+export declare const getDualBoundary: typeof getHexDualBoundary;

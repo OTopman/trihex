@@ -13,13 +13,28 @@ class TopologyRoutingProvider {
     async getRouteCost(origin, destination, _options) {
         const fromPos = this.topology.locate(origin);
         const toPos = this.topology.locate(destination);
+        const localSpeedMps = (30 * 1000) / 3600; // 30 km/h local street speed
+        if (fromPos.roadId === toPos.roadId) {
+            const localDist = (0, icosahedron_1.geodesicDistance)(origin, destination);
+            const localDuration = localDist / localSpeedMps;
+            return {
+                distanceMeters: Math.round(localDist),
+                durationSeconds: Math.round(localDuration),
+                roadVersion: this.topology.version,
+                trafficTimestamp: Date.now(),
+            };
+        }
         const cost = this.topology.estimateCost(fromPos, toPos);
         if (cost.durationSeconds === Infinity) {
             throw new Error(`Unreachable: no connected road path between locations on version ${this.topology.version}`);
         }
+        const accessDist = (0, icosahedron_1.geodesicDistance)(origin, fromPos.coordinate);
+        const egressDist = (0, icosahedron_1.geodesicDistance)(toPos.coordinate, destination);
+        const totalDist = accessDist + cost.distanceMeters + egressDist;
+        const totalDuration = accessDist / localSpeedMps + cost.durationSeconds + egressDist / localSpeedMps;
         return {
-            distanceMeters: cost.distanceMeters,
-            durationSeconds: cost.durationSeconds,
+            distanceMeters: Math.round(totalDist),
+            durationSeconds: Math.round(totalDuration),
             roadVersion: cost.roadVersion,
             trafficTimestamp: Date.now(),
         };

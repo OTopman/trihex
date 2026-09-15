@@ -50,6 +50,14 @@ export declare class TriHex {
      */
     static cellDisk(originId: TriHexId, radius: number): TriHexId[];
     /**
+     * Canonical alias for cellDisk: returns the triangular edge-adjacency graph disk within radius k.
+     */
+    static getCellDisk(originId: TriHexId, radius: number): TriHexId[];
+    /**
+     * Canonical alias for cellToBoundary: returns the 3 spherical boundary vertices of the triangular cell.
+     */
+    static getCellBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord];
+    /**
      * Constructs the genuine spherical Voronoi dual cell (HexDual) for this cell.
      * Returns 6 spherical circumcenter vertices for regular hexagons, and 5 for the 12 pentagonal singularities.
      */
@@ -60,15 +68,29 @@ export declare class TriHex {
      */
     static getHexNeighbors(id: TriHexId): TriHexId[];
     /**
+     * Canonical alias for getHexNeighbors: returns exact neighbors in the spherical Voronoi dual lattice.
+     * Degree 6 for regular hexagons, degree 5 for the 12 pentagonal Euler singularities.
+     */
+    static getDualNeighbors(id: TriHexId): TriHexId[];
+    /**
      * Returns the exact spherical Voronoi boundary coordinates of the dual cell
      * (6 vertices for regular hexagons, 5 vertices for pentagons).
      */
     static getHexDualBoundary(id: TriHexId): GeoCoord[];
     /**
+     * Canonical alias for getHexDualBoundary: returns the perimeter coordinates of the spherical Voronoi dual cell.
+     * (6 vertices for regular hexagons, 5 vertices for pentagons).
+     */
+    static getDualBoundary(id: TriHexId): GeoCoord[];
+    /**
      * Expands a breadth-first search on the hexagonal Voronoi dual graph up to radius k.
      * Produces 7 cells at radius 1, and 19 cells at radius 2 for regular hexagonal regions.
      */
     static hexRing(originId: TriHexId, radius: number): TriHexId[];
+    /**
+     * Canonical alias for hexRing: expands a BFS disk on the spherical Voronoi dual graph up to radius k.
+     */
+    static getDualDisk(originId: TriHexId, radius: number): TriHexId[];
     /**
      * Returns all canonical spherical Voronoi dual cells at the given resolution.
      * Total count is exactly 10 * 4^R + 2 (Euler characteristic).

@@ -4,23 +4,45 @@ exports.evaluateCandidateRecall = evaluateCandidateRecall;
 exports.createRiverBarrierTopology = createRiverBarrierTopology;
 exports.createHighwayTopology = createHighwayTopology;
 const dispatch_1 = require("./dispatch");
+const icosahedron_1 = require("./icosahedron");
 const routing_1 = require("./routing");
 const topology_1 = require("./topology");
 /**
  * Evaluates candidate recall against ground-truth Dijkstra road routing.
  */
 async function evaluateCandidateRecall(scenarioName, topology, drivers, pickup, pickupCellId, cityId = 'lagos') {
-    // 1. Compute ground-truth road routing for ALL drivers in fleet
     const pickupPos = topology.locate(pickup);
     const groundTruthScored = [];
+    const costCache = new Map();
+    const localSpeedMps = (30 * 1000) / 3600;
     for (const drv of drivers) {
-        const drvPos = topology.locate({ lat: drv.lat, lng: drv.lng });
-        const cost = topology.estimateCost(drvPos, pickupPos);
-        if (cost.durationSeconds !== Infinity) {
+        const drvCoord = { lat: drv.lat, lng: drv.lng };
+        const drvPos = topology.locate(drvCoord);
+        if (drvPos.roadId === pickupPos.roadId) {
+            const localDist = (0, icosahedron_1.geodesicDistance)(drvCoord, pickup);
+            const localDuration = localDist / localSpeedMps;
             groundTruthScored.push({
                 driverId: drv.driverId,
-                durationSeconds: cost.durationSeconds,
-                distanceMeters: cost.distanceMeters,
+                durationSeconds: localDuration,
+                distanceMeters: localDist,
+            });
+            continue;
+        }
+        const pairKey = `${drvPos.roadId}->${pickupPos.roadId}`;
+        let cost = costCache.get(pairKey);
+        if (!cost) {
+            cost = topology.estimateCost(drvPos, pickupPos);
+            costCache.set(pairKey, cost);
+        }
+        if (cost.durationSeconds !== Infinity) {
+            const accessDist = (0, icosahedron_1.geodesicDistance)(drvCoord, drvPos.coordinate);
+            const egressDist = (0, icosahedron_1.geodesicDistance)(pickupPos.coordinate, pickup);
+            const totalDist = accessDist + cost.distanceMeters + egressDist;
+            const totalDuration = accessDist / localSpeedMps + cost.durationSeconds + egressDist / localSpeedMps;
+            groundTruthScored.push({
+                driverId: drv.driverId,
+                durationSeconds: totalDuration,
+                distanceMeters: totalDist,
             });
         }
     }
@@ -29,8 +51,10 @@ async function evaluateCandidateRecall(scenarioName, topology, drivers, pickup, 
     const routingProvider = new routing_1.TopologyRoutingProvider(topology);
     const dispatchEngine = new dispatch_1.DispatchEngine({
         routeCostProvider: routingProvider,
-        tier1CandidateLimit: 200,
-        tier2CandidateLimit: 50,
+        tier1CandidateLimit: 500,
+        tier2CandidateLimit: 100,
+        maxCellsPerSearch: 256,
+        maxDriversPerCell: 500,
     });
     // Populate drivers
     for (const drv of drivers) {

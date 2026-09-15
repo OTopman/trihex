@@ -38,6 +38,7 @@ export interface HexDual {
 export interface EffectiveDistanceParams {
   alpha?: number; // Weight for geographic geodesic distance
   beta?: number;  // Weight for network routing / travel time cost
+  barrierPenaltyMeters?: number; // Penalty in meters for crossing partition barriers
 }
 
 /**

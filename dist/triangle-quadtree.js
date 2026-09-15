@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getCellBoundary = void 0;
 exports.packTriHexId = packTriHexId;
 exports.unpackTriHexId = unpackTriHexId;
 exports.barycentricToMorton = barycentricToMorton;
@@ -199,3 +200,7 @@ function cellToBoundary(id) {
         (0, icosahedron_1.inverseProjectFromFace)(face, c[0], c[1]),
     ];
 }
+/**
+ * Canonical alias for cellToBoundary: returns the 3 boundary vertices of the triangular cell on the unit sphere.
+ */
+exports.getCellBoundary = cellToBoundary;

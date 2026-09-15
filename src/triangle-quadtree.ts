@@ -239,3 +239,8 @@ export function cellToBoundary(id: TriHexId): [GeoCoord, GeoCoord, GeoCoord] {
     inverseProjectFromFace(face, c[0], c[1]),
   ];
 }
+
+/**
+ * Canonical alias for cellToBoundary: returns the 3 boundary vertices of the triangular cell on the unit sphere.
+ */
+export const getCellBoundary = cellToBoundary;
