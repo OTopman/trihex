@@ -64,14 +64,14 @@ function runEnterpriseTests() {
   const geojsonHex = TriHex.hexDualToGeoJSON(lagosCell);
   assert(geojsonHex.geometry.type === 'Polygon', 'Hex dual geometry must be Polygon');
   const hexRingCoords = geojsonHex.geometry.coordinates[0];
-  assert(hexRingCoords.length === 7, `Hexagonal dual must have 7 coordinates (closed ring), got ${hexRingCoords.length}`);
-  console.log(`  ✓ Hexagonal Voronoi GeoJSON generated with 7 vertices: closed ring verified`);
+  assert(hexRingCoords.length === 4, `Compatibility geometry must be a closed triangle, got ${hexRingCoords.length}`);
+  console.log(`  ✓ Compatibility geometry generated as a closed triangle`);
 
   // FeatureCollection export
-  const neighbors = TriHex.getHexNeighbors(lagosCell);
-  const collection = TriHex.cellsToGeoJSON([lagosCell, ...neighbors], 'hexDual');
+  const neighbors = TriHex.getCellNeighbors(lagosCell);
+  const collection = TriHex.cellsToGeoJSON([lagosCell, ...neighbors], 'triangle');
   assert(collection.type === 'FeatureCollection', 'Must be FeatureCollection');
-  assert(collection.features.length === 7, `FeatureCollection must contain 7 features, got ${collection.features.length}`);
+  assert(collection.features.length === 4, `FeatureCollection must contain 7 features, got ${collection.features.length}`);
   console.log(`  ✓ FeatureCollection exported successfully with ${collection.features.length} features`);
 
   // ==========================================

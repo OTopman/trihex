@@ -76,8 +76,8 @@ async function runAdversarialAudit() {
 
     // Exact vertex coordinate
     const cellAtVertex = TriHex.latLngToCell(uLat, uLng, 8);
-    const neighbors = TriHex.getHexNeighbors(cellAtVertex);
-    if (neighbors.length !== 6) {
+    const neighbors = TriHex.getCellNeighbors(cellAtVertex);
+    if (neighbors.length !== 3) {
       vertexSingularities++;
     }
     // Verify centroid reconstruction stability
@@ -85,7 +85,7 @@ async function runAdversarialAudit() {
     const distToVertex = TriHex.geodesicDistance({ lat: uLat, lng: uLng }, centroid);
     assert(distToVertex < 20_000, `Centroid at vertex ${vi} drifted: ${distToVertex}m`);
   }
-  console.log(`  ✓ Evaluated all 12 icosahedral vertices: ${12 - vertexSingularities}/12 produced 6 valid Voronoi neighbors.`);
+  console.log(`  ✓ Evaluated all 12 icosahedral vertices: ${12 - vertexSingularities}/12 produced 3 valid edge neighbours.`);
 
   // =========================================================================
   // 3. EXACT 1:4 SUBDIVISION PROPERTY PROOFS

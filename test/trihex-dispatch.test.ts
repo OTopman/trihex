@@ -32,17 +32,22 @@ class MockRedisClient implements RedisCommandClient {
   ): Promise<unknown> {
     // Assert script is the canonical migration script
     assert(script === MIGRATE_DRIVER_LUA, 'Script must match MIGRATE_DRIVER_LUA');
-    const oldCellKey = String(args[0] ?? '');
-    const newCellKey = String(args[1] ?? '');
-    const driverPosKey = String(args[2] ?? '');
-    const driverId = String(args[3] ?? '');
-    const cellTtl = Number(args[4] ?? 0);
-    const driverTtl = Number(args[5] ?? 0);
-    const payload = String(args[6] ?? '');
+    const newCellKey = String(args[0] ?? '');
+    const driverPosKey = String(args[1] ?? '');
+    const driverId = String(args[2] ?? '');
+    const cellTtl = Number(args[3] ?? 0);
+    const driverTtl = Number(args[4] ?? 0);
+    const payload = String(args[5] ?? '');
+    const incoming = JSON.parse(payload) as { updatedAt: number };
 
     // Execute atomic Lua logic:
-    if (oldCellKey && oldCellKey !== '' && oldCellKey !== newCellKey) {
-      this.sets.get(oldCellKey)?.delete(driverId);
+    const existing = this.kvs.get(driverPosKey);
+    if (existing) {
+      const previous = JSON.parse(existing.value) as { updatedAt: number; cellKey?: string };
+      if (previous.updatedAt > incoming.updatedAt) return 0;
+      if (previous.cellKey && previous.cellKey !== newCellKey) {
+        this.sets.get(previous.cellKey)?.delete(driverId);
+      }
     }
 
     if (!this.sets.has(newCellKey)) {
@@ -153,7 +158,7 @@ async function runDispatchTests() {
   });
 
   const cellA = TriHex.latLngToCell(6.4281, 3.4219, 9); // Victoria Island
-  const neighbors = TriHex.getHexNeighbors(cellA);
+  const neighbors = TriHex.getCellNeighbors(cellA);
   const cellB = neighbors[0]; // Adjacent cell
 
   // 1. Initial driver update
@@ -191,6 +196,29 @@ async function runDispatchTests() {
   assert(driversInB_2.includes('drv_2001'), 'Driver must be atomically ADDED to new cell B');
   console.log('  ✓ Verified atomic migration: 0 ghost drivers left in old cell.');
 
+  // 3. A delayed older ping must not move the driver back to cell A.
+  await dispatchWithRedis.updateDriverPosition(
+    {
+      driverId: 'drv_2001',
+      lat: 6.4281,
+      lng: 3.4219,
+      cellId: cellA,
+      cityId,
+      updatedAt: 1,
+      status: 'AVAILABLE',
+    },
+    cellB
+  );
+  assert(
+    (await mockRedis.smembers(formatCellKey(cityId, cellB))).includes('drv_2001'),
+    'Delayed older update must leave driver in authoritative newer cell'
+  );
+  assert(
+    !(await mockRedis.smembers(formatCellKey(cityId, cellA))).includes('drv_2001'),
+    'Delayed older update must not restore old-cell membership'
+  );
+  console.log('  ✓ Rejected delayed stale update without moving driver backward.');
+
   // =========================================================================
   // TEST 3: 2-Tier Candidate Dispatch Pipeline
   // =========================================================================
@@ -219,8 +247,8 @@ async function runDispatchTests() {
   const riderCell = TriHex.latLngToCell(riderPickup.lat, riderPickup.lng, 9);
 
   // Populate 10 candidate drivers around the rider at varying distances
-  const ring1Cells = TriHex.hexRing(riderCell, 1);
-  const ring2Cells = TriHex.hexRing(riderCell, 2);
+  const ring1Cells = TriHex.cellDisk(riderCell, 1);
+  const ring2Cells = TriHex.cellDisk(riderCell, 2);
 
   // 3 Close drivers (Ring 1) - Available
   for (let i = 1; i <= 3; i++) {
@@ -237,12 +265,12 @@ async function runDispatchTests() {
   }
 
   // 1 Close driver in Ring 1 - BUSY (Must be filtered out)
-  const busyCenter = TriHex.cellToLatLng(ring1Cells[4]);
+  const busyCenter = TriHex.cellToLatLng(ring1Cells[0]);
   await dispatchEngine.updateDriverPosition({
     driverId: 'drv_busy_1',
     lat: busyCenter.lat,
     lng: busyCenter.lng,
-    cellId: ring1Cells[4],
+    cellId: ring1Cells[0],
     cityId,
     updatedAt: Date.now(),
     status: 'BUSY',
@@ -250,12 +278,12 @@ async function runDispatchTests() {
 
   // 4 Medium-distance drivers (Ring 2) - Available
   for (let i = 1; i <= 4; i++) {
-    const center = TriHex.cellToLatLng(ring2Cells[i + 7]);
+    const center = TriHex.cellToLatLng(ring2Cells[i + 3]);
     await dispatchEngine.updateDriverPosition({
       driverId: `drv_medium_${i}`,
       lat: center.lat,
       lng: center.lng,
-      cellId: ring2Cells[i + 7],
+      cellId: ring2Cells[i + 3],
       cityId,
       updatedAt: Date.now(),
       status: 'AVAILABLE',

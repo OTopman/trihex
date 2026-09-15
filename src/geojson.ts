@@ -63,7 +63,8 @@ export function cellToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeomet
 }
 
 /**
- * Converts the hexagonal Voronoi dual of a TriHex cell into a standard RFC 7946 GeoJSON Feature<Polygon>.
+ * @deprecated TriHex stores triangles and has no globally regular hexagonal
+ * dual. This compatibility export returns the actual triangular cell geometry.
  */
 export function hexDualToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeometry, CellFeatureProperties> {
   const boundary = getHexDualBoundary(id);
@@ -90,7 +91,7 @@ export function hexDualToGeoJSON(id: TriHexId): GeoJSONFeature<GeoJSONPolygonGeo
       morton: unpacked.morton.toString(16),
       dualSector: 0,
       topoCluster: 0,
-      representation: 'hexDual',
+      representation: 'triangle',
     },
   };
 }

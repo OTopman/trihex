@@ -68,18 +68,18 @@ function runTests() {
   console.log(`  ✓ Exact 1:4 nesting verified: 1 parent has ${expectedChildCount} contiguous child cells`);
   console.log(`  ✓ SQL Range Query: WHERE cell BETWEEN 0x${range.start.toString(16)} AND 0x${range.end.toString(16)}`);
 
-  // 4. Hexagonal Voronoi Dual Neighbors
-  console.log('\n▶ Test 4: Hexagonal Voronoi Dual & 6-Way Adjacency');
-  const neighbors = TriHex.getHexNeighbors(cellRes9);
-  assert(neighbors.length === 6, `Expected 6 hexagonal neighbors, got ${neighbors.length}`);
-  console.log(`  ✓ Voronoi dual successfully produced ${neighbors.length} equidistant neighbors`);
+  // 4. Triangular edge neighbours
+  console.log('\n▶ Test 4: Triangular Edge Adjacency');
+  const neighbors = TriHex.getCellNeighbors(cellRes9);
+  assert(neighbors.length === 3, `Expected 3 edge neighbors, got ${neighbors.length}`);
+  console.log(`  ✓ Triangular grid produced ${neighbors.length} edge neighbours`);
 
   // Verify k-ring expansion
-  const diskR1 = TriHex.hexRing(cellRes9, 1);
-  assert(diskR1.length === 7, `Expected 7 cells in k-ring(1), got ${diskR1.length}`);
-  const diskR2 = TriHex.hexRing(cellRes9, 2);
-  assert(diskR2.length === 19, `Expected 19 cells in k-ring(2), got ${diskR2.length}`);
-  console.log(`  ✓ Hexagonal k-ring(1) = ${diskR1.length} cells, k-ring(2) = ${diskR2.length} cells (exact 3*k*(k+1)+1)`);
+  const diskR1 = TriHex.cellDisk(cellRes9, 1);
+  assert(diskR1.length === 4, `Expected 4 cells in edge disk(1), got ${diskR1.length}`);
+  const diskR2 = TriHex.cellDisk(cellRes9, 2);
+  assert(diskR2.length === 10, `Expected 10 cells in edge disk(2), got ${diskR2.length}`);
+  console.log(`  ✓ Triangular edge disk(1) = ${diskR1.length} cells, disk(2) = ${diskR2.length} cells`);
 
   // 5. Network Topology & Partition Cluster Embedding
   console.log('\n▶ Test 5: Road Network Topology Cluster Embedding');

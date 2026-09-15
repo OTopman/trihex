@@ -57,11 +57,12 @@ export interface RedisCommandClient {
 /**
  * Atomic Redis Lua script for driver cell migration.
  *
- * Atomically removes driver from old cell set, adds to new cell set,
- * refreshes cell TTL, and records driver location with TTL.
- * Eliminates ghost drivers caused by process crashes or network split-brain.
+ * Atomically accepts only non-stale driver updates, removes membership from the
+ * authoritative previous cell, adds the new membership, refreshes TTLs, and
+ * records the new position. The previous cell is read from the stored record;
+ * it is never trusted from a caller-provided oldCellId.
  */
-export declare const MIGRATE_DRIVER_LUA = "\nlocal oldCellKey = KEYS[1]\nlocal newCellKey = KEYS[2]\nlocal driverPosKey = KEYS[3]\nlocal driverId = ARGV[1]\nlocal cellTtl = tonumber(ARGV[2])\nlocal driverTtl = tonumber(ARGV[3])\nlocal payload = ARGV[4]\n\nif oldCellKey and oldCellKey ~= \"\" and oldCellKey ~= newCellKey then\n  redis.call(\"SREM\", oldCellKey, driverId)\nend\n\nredis.call(\"SADD\", newCellKey, driverId)\nif cellTtl and cellTtl > 0 then\n  redis.call(\"EXPIRE\", newCellKey, cellTtl)\nend\n\nif payload and payload ~= \"\" then\n  redis.call(\"SET\", driverPosKey, payload, \"EX\", driverTtl)\nelse\n  redis.call(\"SET\", driverPosKey, newCellKey, \"EX\", driverTtl)\nend\n\nreturn 1\n";
+export declare const MIGRATE_DRIVER_LUA = "\nlocal newCellKey = KEYS[1]\nlocal driverPosKey = KEYS[2]\nlocal driverId = ARGV[1]\nlocal cellTtl = tonumber(ARGV[2])\nlocal driverTtl = tonumber(ARGV[3])\nlocal payload = ARGV[4]\nlocal incoming = cjson.decode(payload)\nlocal existingRaw = redis.call(\"GET\", driverPosKey)\n\nif existingRaw then\n  local existing = cjson.decode(existingRaw)\n  if tonumber(existing.updatedAt) > tonumber(incoming.updatedAt) then\n    return 0\n  end\n\n  local oldCellKey = existing.cellKey\n  if oldCellKey and oldCellKey ~= \"\" and oldCellKey ~= newCellKey then\n    redis.call(\"SREM\", oldCellKey, driverId)\n  end\nend\n\nredis.call(\"SADD\", newCellKey, driverId)\nif cellTtl and cellTtl > 0 then\n  redis.call(\"EXPIRE\", newCellKey, cellTtl)\nend\n\nif payload and payload ~= \"\" then\n  redis.call(\"SET\", driverPosKey, payload, \"EX\", driverTtl)\nelse\n  redis.call(\"SET\", driverPosKey, newCellKey, \"EX\", driverTtl)\nend\n\nreturn 1\n";
 /**
  * Generates a Redis cluster-safe hash-tagged key for a spatial cell.
  * Format: {cityId}:cell:{cellIdHex}

@@ -14,6 +14,15 @@ export function packTriHexId(
   _dualSector = 0,
   _topoCluster = 0
 ): TriHexId {
+  if (!Number.isInteger(face) || face < 0 || face >= BIT_LAYOUT.TOTAL_FACES) {
+    throw new RangeError(`Face ${face} must be an integer between 0 and ${BIT_LAYOUT.TOTAL_FACES - 1}`);
+  }
+  if (!Number.isInteger(resolution) || resolution < 0 || resolution > BIT_LAYOUT.MAX_RESOLUTION) {
+    throw new RangeError(`Resolution ${resolution} must be an integer between 0 and ${BIT_LAYOUT.MAX_RESOLUTION}`);
+  }
+  if (typeof morton !== 'bigint' || morton < 0n || morton >= (1n << BigInt(resolution * 2))) {
+    throw new RangeError(`Morton code ${morton} is invalid for resolution ${resolution}`);
+  }
   let id = 0n;
   id |= (BigInt(face) & 0x1fn) << BIT_LAYOUT.FACE_SHIFT;
   id |= (BigInt(resolution) & 0x0fn) << BIT_LAYOUT.RES_SHIFT;
