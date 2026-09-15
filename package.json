@@ -1,0 +1,42 @@
+{
+  "name": "trihex",
+  "version": "1.0.0",
+  "description": "High-performance Tri-Hex Metric Spatial Indexing Engine: Exact 1:4 Hierarchical Triangular Quadtree with Hexagonal Voronoi Dual and Network Topology Awareness",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "ts-node -T test/trihex.test.ts && ts-node -T test/trihex-enterprise.test.ts && ts-node -T test/trihex-audit-proofs.test.ts && ts-node -T test/trihex-dispatch.test.ts && ts-node -T test/trihex-adversarial-audit.ts",
+    "test:massive": "ts-node -T test/trihex-massive-scale.test.ts",
+    "benchmark": "ts-node -T benchmarks/benchmark.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OTopman/trihex.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OTopman/trihex/issues"
+  },
+  "homepage": "https://github.com/OTopman/trihex#readme",
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "SPECIFICATION.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "spatial-index",
+    "dggs",
+    "geospatial",
+    "h3",
+    "s2",
+    "hexagonal-grid",
+    "triangular-quadtree",
+    "ridehailing",
+    "mobility"
+  ],
+  "author": "Deebezt Technologies",
+  "license": "MIT"
+}

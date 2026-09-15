@@ -1,0 +1,67 @@
+export type TriHexId = bigint;
+
+export interface GeoCoord {
+  lat: number;
+  lng: number;
+}
+
+export type Vector3D = [number, number, number];
+
+export interface FaceCoord {
+  face: number;
+  u: number;
+  v: number;
+}
+
+export interface CellRange {
+  start: TriHexId;
+  end: TriHexId;
+}
+
+export interface HexDual {
+  hexId: TriHexId;
+  center: GeoCoord;
+  boundary: GeoCoord[];
+  neighbors: TriHexId[];
+}
+
+export interface EffectiveDistanceParams {
+  alpha?: number; // Weight for geographic geodesic distance
+  beta?: number;  // Weight for network routing / travel time cost
+}
+
+/**
+ * 64-bit Bitfield Layout Constants (Pure Canonical 63-Bit Non-Negative Representation)
+ *
+ * Ordered hierarchically from MSB to LSB to guarantee:
+ *  1. Exact 1D database B-Tree range queries (WHERE id BETWEEN start AND end)
+ *     with 100% density (end - start + 1 == 4^ΔR) and zero false positives.
+ *  2. 100% compatibility with signed 64-bit SQL BIGINT (PostgreSQL/Prisma):
+ *     Bit 63 is strictly 0, ensuring all TriHexId values are non-negative,
+ *     eliminating numeric overflow and sign-inversion sorting bugs.
+ *  3. Architectural decoupling: Road network topology partitioning is decoupled
+ *     into an external registry, preserving spatial key immutability.
+ *
+ *  Bit 63     (1 bit):   Sign Guard (strictly 0)
+ *  Bits 58–62 (5 bits):  Face ID (0..19)
+ *  Bits 54–57 (4 bits):  Resolution (0..15)
+ *  Bits 0–53  (54 bits): Triangular Quadtree Morton Code (up to 30 bits for 15 levels)
+ */
+export const BIT_LAYOUT = {
+  FACE_BITS: 5n,
+  RES_BITS: 4n,
+  MORTON_BITS: 54n,
+
+  FACE_SHIFT: 58n,
+  RES_SHIFT: 54n,
+  MORTON_SHIFT: 0n,
+
+  FACE_MASK: 0x1fn << 58n,
+  RES_MASK: 0x0fn << 54n,
+  MORTON_MASK: (1n << 54n) - 1n,
+
+  MAX_SIGNED_INT64: 0x7fffffffffffffffn,
+  MAX_RESOLUTION: 15,
+  TOTAL_FACES: 20,
+} as const;
+
