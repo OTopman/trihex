@@ -36,6 +36,16 @@ function validateCellId(id) {
     }
     const isDual = ((id >> 53n) & 1n) === 1n;
     if (isDual) {
+        // Check reserved padding bits 42..52 (11 bits, must be strictly zero)
+        const reservedHigh = (id >> 42n) & 0x7ffn;
+        if (reservedHigh !== 0n) {
+            throw new RangeError(`Dual TriHexId 0x${id.toString(16)} has non-zero reserved padding bits 42..52 (0x${reservedHigh.toString(16)})`);
+        }
+        // Check reserved padding bits 0..9 (10 bits, must be strictly zero)
+        const reservedLow = id & 0x3ffn;
+        if (reservedLow !== 0n) {
+            throw new RangeError(`Dual TriHexId 0x${id.toString(16)} has non-zero reserved padding bits 0..9 (0x${reservedLow.toString(16)})`);
+        }
         const N = 1 << resolution;
         const I = Number((id >> 26n) & 0xffffn);
         const J = Number((id >> 10n) & 0xffffn);
@@ -44,10 +54,11 @@ function validateCellId(id) {
         }
     }
     else {
-        const morton = id & types_1.BIT_LAYOUT.MORTON_MASK;
+        // For primal cells, bit 53 is 0, and all bits from 2*resolution up to 53 must be strictly zero!
         const maxMortonForRes = resolution === 0 ? 0n : (1n << BigInt(resolution * 2)) - 1n;
-        if (morton > maxMortonForRes) {
-            throw new RangeError(`TriHexId 0x${id.toString(16)} has Morton code 0x${morton.toString(16)} exceeding resolution ${resolution} capacity (max 0x${maxMortonForRes.toString(16)})`);
+        const lowerBits = id & ((1n << 54n) - 1n); // all 54 bits below resolution field
+        if (lowerBits > maxMortonForRes) {
+            throw new RangeError(`TriHexId 0x${id.toString(16)} has non-zero reserved bits or Morton code 0x${lowerBits.toString(16)} exceeding resolution ${resolution} capacity (max 0x${maxMortonForRes.toString(16)})`);
         }
     }
     // Verify sign guard bit 63 is zero

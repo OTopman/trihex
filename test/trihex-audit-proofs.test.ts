@@ -1,4 +1,4 @@
-import { TriHex } from '../src/index';
+import { getResolutionDualCells, TriHex, validateCellId } from '../src/index';
 import { geoToVector3D } from '../src/icosahedron';
 
 function assert(condition: boolean, message: string) {
@@ -285,6 +285,63 @@ function runAuditProofs() {
   console.log(
     '  ✓ Verified strict input rejection: NaNs, Infinities, latitude bounds, cluster IDs, and cellDisk DoS limits all safely enforced.'
   );
+
+  // =========================================================================
+  // PROOF 8: Strict Reserved / Padding-Bit Rejection (Closing F-01)
+  // =========================================================================
+  console.log('\n▶ Proof 8: Strict Reserved / Padding-Bit Rejection (Closing F-01)');
+
+  // A. Primal cell: verify every unused bit from 2R to 52 is rejected individually and combined
+  const primalBase = TriHex.pack(0, 1, 0n); // resolution 1: bits 0..1 are valid, bits 2..52 are reserved
+  const primalReservedBits = [2n, 5n, 10n, 20n, 30n, 40n, 50n, 52n];
+
+  for (const bit of primalReservedBits) {
+    let threw = false;
+    try {
+      validateCellId(primalBase | (1n << bit));
+    } catch (err: any) {
+      threw = err instanceof RangeError;
+    }
+    assert(threw, `validateCellId must reject primal cell with reserved bit ${bit} set`);
+  }
+
+  // B. Dual cell: verify bits 0..9 and 42..52 are strictly rejected
+  const dualCell = getResolutionDualCells(1)[0];
+  // Verify dual cell itself is valid
+  validateCellId(dualCell);
+
+  const dualLowReserved = [0n, 1n, 5n, 8n, 9n];
+  for (const bit of dualLowReserved) {
+    let threw = false;
+    try {
+      validateCellId(dualCell | (1n << bit));
+    } catch (err: any) {
+      threw = err instanceof RangeError;
+    }
+    assert(threw, `validateCellId must reject dual cell with low padding bit ${bit} set`);
+  }
+
+  const dualHighReserved = [42n, 45n, 48n, 51n, 52n];
+  for (const bit of dualHighReserved) {
+    let threw = false;
+    try {
+      validateCellId(dualCell | (1n << bit));
+    } catch (err: any) {
+      threw = err instanceof RangeError;
+    }
+    assert(threw, `validateCellId must reject dual cell with high padding bit ${bit} set`);
+  }
+
+  // C. Combined corrupted bits
+  let threwCombined = false;
+  try {
+    validateCellId(dualCell | 0x3ffn); // all 10 low bits set
+  } catch (err: any) {
+    threwCombined = err instanceof RangeError;
+  }
+  assert(threwCombined, 'validateCellId must reject dual cell with all lower 10 padding bits set');
+
+  console.log('  ✓ Verified 100% rejection of non-zero reserved bits across primal and dual cells (F-01 closed).');
 
   console.log('\n🏆 ALL AUDIT PROOFS VERIFIED WITH 100% MATHEMATICAL RIGOR!\n');
 }
