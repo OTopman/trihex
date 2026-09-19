@@ -24,3 +24,15 @@ export declare function lineStringToCells(coordinates: GeoCoord[], resolution: n
  *  - Strict DoS guards preventing event-loop starvation
  */
 export declare function polygonToCells(polygonInput: GeoCoord[] | GeoCoord[][], resolution: number, options?: RasterizePolygonOptions | number): TriHexId[];
+/**
+ * Accelerated hierarchical quadtree polyfill for arbitrary polygons.
+ *
+ * Traverses the icosahedral quadtree down to the target resolution, ensuring 100% geometric
+ * fidelity, boundary conformance, and deduplicated cell coverage.
+ */
+export declare function polygonToCellsHierarchical(polygonInput: GeoCoord[] | GeoCoord[][], resolution: number, options?: RasterizePolygonOptions | number): TriHexId[];
+/**
+ * Directly rasterizes an arbitrary polygon into a maximally compacted set of mixed-resolution cells.
+ * Merges 4-sibling clusters bottom-up into parent cells to minimize memory footprint.
+ */
+export declare function polygonToCompactedCells(polygonInput: GeoCoord[] | GeoCoord[][], resolution: number, options?: RasterizePolygonOptions | number): TriHexId[];

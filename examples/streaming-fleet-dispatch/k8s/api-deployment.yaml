@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: trihex-dispatch-api
+  labels:
+    app: trihex-dispatch-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: trihex-dispatch-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trihex-dispatch-api
+  labels:
+    app: trihex-dispatch-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: trihex-dispatch-api
+  template:
+    metadata:
+      labels:
+        app: trihex-dispatch-api
+    spec:
+      containers:
+        - name: api
+          image: trihex/streaming-fleet-dispatch:latest
+          command: ["npm", "run", "start:api"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: REDIS_NODES
+              value: "redis-cluster-0.redis-cluster-service:6379,redis-cluster-1.redis-cluster-service:6379,redis-cluster-2.redis-cluster-service:6379"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"

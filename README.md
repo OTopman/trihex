@@ -225,6 +225,40 @@ npm run benchmark:independent
 
 ---
 
+## Interactive 3D Globe & 2D Map Visualizer
+
+TriHex includes an interactive dark-mode WebGL visualizer for exploring the discrete global grid system:
+
+- **3D Globe Mode**: Three.js WebGL canvas displaying the spherical icosahedron (20 faces, 30 geodesics, 12 pentagonal singularities).
+- **2D Street Map Mode**: Leaflet map integrated with CartoDB Dark Matter tiles, rendering cell polygon overlays over real cities.
+- **Split View**: Synchronized side-by-side display with coordinated cell inspection and SQL B-Tree range scans.
+
+```bash
+npm run visualizer
+# Open http://localhost:3000
+```
+
+---
+
+## Streaming Reference Architecture
+
+A turnkey production reference architecture for real-time fleet telemetry and mobility dispatch is available in [`examples/streaming-fleet-dispatch`](examples/streaming-fleet-dispatch):
+
+- **Event Streaming Broker**: Redpanda / Kafka pipeline ingesting GPS telemetry pings.
+- **Redis Cluster Macro-Sharding**: Resolution 4 spatial partitioning eliminating single-slot city hotspots.
+- **Ghost Elimination**: Monotonic sequence protection via atomic `MIGRATE_DRIVER_LUA`.
+- **Two-Tier Dispatch API**: Geodesic pre-filtering + turn-by-turn road network routing with physical barrier awareness.
+
+```bash
+# Run standalone benchmark simulation (zero external dependencies)
+npm run example:streaming
+
+# Run turnkey Docker Compose stack (Redpanda + 3-node Redis Cluster + Worker + API)
+cd examples/streaming-fleet-dispatch && docker compose up -d
+```
+
+---
+
 ## License
 
 MIT © Deebezt Technologies

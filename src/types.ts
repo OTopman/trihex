@@ -77,3 +77,37 @@ export const BIT_LAYOUT = {
   TOTAL_VERTICES: 12,
   TOTAL_EDGES: 30,
 } as const;
+
+export type TriHexEdgeId = bigint;
+
+/**
+ * Directed Edge representation (Flow Vector) between two adjacent cells.
+ */
+export interface TriHexDirectedEdge {
+  readonly edgeId: TriHexEdgeId;
+  readonly origin: TriHexId;
+  readonly destination: TriHexId;
+  readonly edgeIndex: number;
+  readonly isDual: boolean;
+  readonly boundary: [GeoCoord, GeoCoord];
+}
+
+/**
+ * Bitfield layout constants for canonical 63-bit Directed Edges (TriHexEdgeId).
+ * Bit 63:     Sign Guard (strictly 0)
+ * Bits 58-62: Face ID (0..19)
+ * Bits 54-57: Resolution (0..15)
+ * Bit 53:     Dual mode bit (0 = primal triangle edge, 1 = dual Voronoi edge)
+ * Bit 52:     Directed edge flag (strictly 1)
+ * Bits 49-51: Edge neighbor index (0..7, 3 bits: 0..2 for primal, 0..5 for dual)
+ * Bits 0-48:  Origin payload
+ */
+export const EDGE_BIT_LAYOUT = {
+  EDGE_FLAG_BIT: 52n,
+  EDGE_FLAG_MASK: 1n << 52n,
+  EDGE_INDEX_SHIFT: 49n,
+  EDGE_INDEX_BITS: 3n,
+  EDGE_INDEX_MASK: 0x7n << 49n,
+  ORIGIN_MASK: ~((1n << 52n) | (0x7n << 49n)) & BIT_LAYOUT.MAX_SIGNED_INT64,
+} as const;
+

@@ -2,7 +2,7 @@ import { DispatchEngine, DispatchEngineOptions } from './dispatch';
 import { CellFeatureProperties, GeoJSONFeature, GeoJSONFeatureCollection, GeoJSONPolygonGeometry } from './geojson';
 import { TopologyPartitionRegistry } from './network-metric';
 import { RasterizePolygonOptions } from './rasterization';
-import { CellRange, EffectiveDistanceParams, GeoCoord, HexDual, TriHexId } from './types';
+import { CellRange, EffectiveDistanceParams, GeoCoord, HexDual, TriHexEdgeId, TriHexId } from './types';
 /**
  * TriHex: Unified 64-bit Discrete Global Grid System & Mobility Spatial Engine
  *
@@ -162,6 +162,34 @@ export declare class TriHex {
      */
     static polygonToCells(coordinates: GeoCoord[] | GeoCoord[][], resolution: number, options?: RasterizePolygonOptions | number): TriHexId[];
     /**
+     * Accelerated hierarchical quadtree polyfill for arbitrary polygons
+     */
+    static polygonToCellsHierarchical(coordinates: GeoCoord[] | GeoCoord[][], resolution: number, options?: RasterizePolygonOptions | number): TriHexId[];
+    /**
+     * Directly rasterizes an arbitrary polygon into a maximally compacted set of mixed-resolution cells
+     */
+    static polygonToCompactedCells(coordinates: GeoCoord[] | GeoCoord[][], resolution: number, options?: RasterizePolygonOptions | number): TriHexId[];
+    /**
+     * Constructs a canonical 63-bit Directed Edge ID representing flow from origin to adjacent destination
+     */
+    static getDirectedEdge(origin: TriHexId, destination: TriHexId): TriHexEdgeId;
+    /**
+     * Returns the origin cell ID of a directed edge
+     */
+    static getDirectedEdgeOrigin(edgeId: TriHexEdgeId): TriHexId;
+    /**
+     * Returns the destination cell ID of a directed edge
+     */
+    static getDirectedEdgeDestination(edgeId: TriHexEdgeId): TriHexId;
+    /**
+     * Returns the shared boundary segment between the origin and destination of a directed edge
+     */
+    static getDirectedEdgeBoundary(edgeId: TriHexEdgeId): [GeoCoord, GeoCoord];
+    /**
+     * Returns true if the given value is a valid directed edge ID
+     */
+    static isDirectedEdge(id: unknown): id is TriHexEdgeId;
+    /**
      * Returns the approximate circumradius in meters for cells at a given resolution
      */
     static getResolutionCellRadius(resolution: number): number;
@@ -196,6 +224,7 @@ export * from './adjacency';
 export * from './candidate-recall';
 export * from './compaction';
 export * from './constants';
+export * from './directed-edge';
 export * from './dispatch';
 export * from './geojson';
 export * from './hex-dual';
@@ -208,4 +237,5 @@ export * from './topology';
 export * from './triangle-quadtree';
 export * from './types';
 export * from './validation';
+export declare const latLngToCell: typeof TriHex.latLngToCell;
 export default TriHex;

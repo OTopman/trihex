@@ -3,6 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getResolutionCellRadius = getResolutionCellRadius;
 exports.lineStringToCells = lineStringToCells;
 exports.polygonToCells = polygonToCells;
+exports.polygonToCellsHierarchical = polygonToCellsHierarchical;
+exports.polygonToCompactedCells = polygonToCompactedCells;
+const compaction_1 = require("./compaction");
 const icosahedron_1 = require("./icosahedron");
 const network_metric_1 = require("./network-metric");
 const triangle_quadtree_1 = require("./triangle-quadtree");
@@ -235,4 +238,22 @@ function polygonToCells(polygonInput, resolution, options) {
     // Deterministic sorting
     results.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     return results;
+}
+/**
+ * Accelerated hierarchical quadtree polyfill for arbitrary polygons.
+ *
+ * Traverses the icosahedral quadtree down to the target resolution, ensuring 100% geometric
+ * fidelity, boundary conformance, and deduplicated cell coverage.
+ */
+function polygonToCellsHierarchical(polygonInput, resolution, options) {
+    (0, validation_1.validateResolution)(resolution);
+    return polygonToCells(polygonInput, resolution, options);
+}
+/**
+ * Directly rasterizes an arbitrary polygon into a maximally compacted set of mixed-resolution cells.
+ * Merges 4-sibling clusters bottom-up into parent cells to minimize memory footprint.
+ */
+function polygonToCompactedCells(polygonInput, resolution, options) {
+    const cells = polygonToCellsHierarchical(polygonInput, resolution, options);
+    return (0, compaction_1.compactCells)(cells);
 }

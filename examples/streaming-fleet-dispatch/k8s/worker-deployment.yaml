@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trihex-stream-worker
+  labels:
+    app: trihex-stream-worker
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: trihex-stream-worker
+  template:
+    metadata:
+      labels:
+        app: trihex-stream-worker
+    spec:
+      containers:
+        - name: worker
+          image: trihex/streaming-fleet-dispatch:latest
+          command: ["npm", "run", "start:worker"]
+          env:
+            - name: KAFKA_BROKERS
+              value: "redpanda:9092"
+            - name: REDIS_NODES
+              value: "redis-cluster-0.redis-cluster-service:6379,redis-cluster-1.redis-cluster-service:6379,redis-cluster-2.redis-cluster-service:6379"
+            - name: RESOLUTION
+              value: "10"
+            - name: MACRO_SHARD_RES
+              value: "4"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1Gi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: trihex-stream-worker-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: trihex-stream-worker
+  minReplicas: 2
+  maxReplicas: 16
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

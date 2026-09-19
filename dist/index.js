@@ -14,9 +14,10 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TriHex = void 0;
+exports.latLngToCell = exports.TriHex = void 0;
 const adjacency_1 = require("./adjacency");
 const compaction_1 = require("./compaction");
+const directed_edge_1 = require("./directed-edge");
 const dispatch_1 = require("./dispatch");
 const geojson_1 = require("./geojson");
 const hex_dual_1 = require("./hex-dual");
@@ -263,6 +264,48 @@ class TriHex {
         return (0, rasterization_1.polygonToCells)(coordinates, resolution, options);
     }
     /**
+     * Accelerated hierarchical quadtree polyfill for arbitrary polygons
+     */
+    static polygonToCellsHierarchical(coordinates, resolution, options) {
+        return (0, rasterization_1.polygonToCellsHierarchical)(coordinates, resolution, options);
+    }
+    /**
+     * Directly rasterizes an arbitrary polygon into a maximally compacted set of mixed-resolution cells
+     */
+    static polygonToCompactedCells(coordinates, resolution, options) {
+        return (0, rasterization_1.polygonToCompactedCells)(coordinates, resolution, options);
+    }
+    /**
+     * Constructs a canonical 63-bit Directed Edge ID representing flow from origin to adjacent destination
+     */
+    static getDirectedEdge(origin, destination) {
+        return (0, directed_edge_1.getDirectedEdge)(origin, destination);
+    }
+    /**
+     * Returns the origin cell ID of a directed edge
+     */
+    static getDirectedEdgeOrigin(edgeId) {
+        return (0, directed_edge_1.getDirectedEdgeOrigin)(edgeId);
+    }
+    /**
+     * Returns the destination cell ID of a directed edge
+     */
+    static getDirectedEdgeDestination(edgeId) {
+        return (0, directed_edge_1.getDirectedEdgeDestination)(edgeId);
+    }
+    /**
+     * Returns the shared boundary segment between the origin and destination of a directed edge
+     */
+    static getDirectedEdgeBoundary(edgeId) {
+        return (0, directed_edge_1.getDirectedEdgeBoundary)(edgeId);
+    }
+    /**
+     * Returns true if the given value is a valid directed edge ID
+     */
+    static isDirectedEdge(id) {
+        return (0, directed_edge_1.isDirectedEdge)(id);
+    }
+    /**
      * Returns the approximate circumradius in meters for cells at a given resolution
      */
     static getResolutionCellRadius(resolution) {
@@ -309,6 +352,7 @@ __exportStar(require("./adjacency"), exports);
 __exportStar(require("./candidate-recall"), exports);
 __exportStar(require("./compaction"), exports);
 __exportStar(require("./constants"), exports);
+__exportStar(require("./directed-edge"), exports);
 __exportStar(require("./dispatch"), exports);
 __exportStar(require("./geojson"), exports);
 __exportStar(require("./hex-dual"), exports);
@@ -321,4 +365,6 @@ __exportStar(require("./topology"), exports);
 __exportStar(require("./triangle-quadtree"), exports);
 __exportStar(require("./types"), exports);
 __exportStar(require("./validation"), exports);
+// Functional export alias
+exports.latLngToCell = TriHex.latLngToCell;
 exports.default = TriHex;

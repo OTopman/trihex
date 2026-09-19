@@ -3,10 +3,24 @@
   "version": "1.0.0",
   "description": "High-performance Tri-Hex Metric Spatial Indexing Engine: Exact 1:4 Hierarchical Triangular Quadtree with Hexagonal Voronoi Dual and Network Topology Awareness",
   "main": "dist/index.js",
+  "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/index.js"
+    },
+    "./dispatch": {
+      "types": "./dist/dispatch.d.ts",
+      "import": "./dist/esm/dispatch.js",
+      "require": "./dist/dispatch.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
-    "build": "tsc",
-    "test": "ts-node -T test/trihex.test.ts && ts-node -T test/trihex-enterprise.test.ts && ts-node -T test/trihex-audit-proofs.test.ts && ts-node -T test/trihex-dispatch.test.ts && ts-node -T test/trihex-adversarial-audit.ts && ts-node -T test/trihex-dual.test.ts && ts-node -T test/trihex-candidate-recall.test.ts && ts-node -T test/trihex-concurrency.test.ts",
+    "build": "tsc && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/esm/index.js --packages=external && esbuild src/dispatch.ts --bundle --platform=node --format=esm --outfile=dist/esm/dispatch.js --packages=external && esbuild src/index.ts --bundle --format=esm --outfile=visualizer/trihex.js && node -e \"require('fs').writeFileSync('dist/esm/package.json', '{\\\"type\\\": \\\"module\\\"}')\"",
+    "test": "ts-node -T test/trihex.test.ts && ts-node -T test/trihex-enterprise.test.ts && ts-node -T test/trihex-audit-proofs.test.ts && ts-node -T test/trihex-dispatch.test.ts && ts-node -T test/trihex-adversarial-audit.ts && ts-node -T test/trihex-dual.test.ts && ts-node -T test/trihex-candidate-recall.test.ts && ts-node -T test/trihex-concurrency.test.ts && ts-node -T test/trihex-directed-edge.test.ts && ts-node -T test/trihex-hierarchical-polyfill.test.ts",
     "test:massive": "ts-node -T test/trihex-massive-scale.test.ts",
     "test:redis-integration": "ts-node -T test/trihex-redis-live-cluster.test.ts",
     "test:real-road-recall": "ts-node -T test/trihex-real-road-recall.test.ts",
@@ -14,6 +28,8 @@
     "test:concurrency-scaling": "ts-node -T test/trihex-concurrency-scaling.test.ts",
     "benchmark": "ts-node -T benchmarks/benchmark.ts",
     "benchmark:independent": "ts-node -T benchmarks/independent-benchmark.ts",
+    "visualizer": "npx -y serve ./visualizer -p 3000",
+    "example:streaming": "cd examples/streaming-fleet-dispatch && npm run demo",
     "prepublishOnly": "npm run build && npm test"
   },
   "repository": {
@@ -44,10 +60,10 @@
   ],
   "author": "Temitope Okunlola",
   "license": "MIT",
-  "dependencies": {},
   "devDependencies": {
     "@types/ioredis": "^4.28.10",
     "@types/node": "^22.13.0",
+    "esbuild": "^0.28.2",
     "ioredis": "^6.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"

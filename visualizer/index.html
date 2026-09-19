@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TriHex 3D & 2D — Discrete Global Grid & Spherical Voronoi Explorer</title>
+  <meta name="description"
+    content="Interactive 3D WebGL and 2D Leaflet Discrete Global Grid System (DGGS) explorer visualizing 1:4 hierarchical quadtrees, genuine spherical Voronoi hexagonal duals, and real-world cartographic overlays.">
+
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap"
+    rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Leaflet 2D Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- Three.js and OrbitControls via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+
+<body>
+  <div id="app" class="view-3d">
+    <!-- WebGL 3D Canvas Container -->
+    <div id="canvas-container">
+      <div class="view-badge view-badge-3d">3D SPHERICAL GEODESIC</div>
+    </div>
+
+    <!-- Leaflet 2D Map Container -->
+    <div id="map-container">
+      <div class="view-badge view-badge-2d">2D MERCATOR CARTOGRAPHY</div>
+    </div>
+
+    <!-- Header HUD -->
+    <header class="hud-header glass-card">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="20,2 38,34 2,34" stroke="#00f0ff" stroke-width="2" fill="rgba(0, 240, 255, 0.12)" />
+          <polygon points="20,10 32,17 32,31 20,38 8,31 8,17" stroke="#f59e0b" stroke-width="2"
+            fill="rgba(245, 158, 11, 0.15)" />
+          <circle cx="20" cy="24" r="3.5" fill="#00f0ff" />
+        </svg>
+        <div class="brand-text">
+          <h1 class="brand-title">TriHex<span class="highlight">DGGS</span></h1>
+          <p class="brand-subtitle">Spherical Voronoi & Spatial Analytics</p>
+        </div>
+      </div>
+
+      <!-- View Switcher Tabs (3D Globe / 2D Map / Split) -->
+      <div class="view-switch-group">
+        <button class="view-btn active" id="view-btn-3d" data-view="3d" title="Switch to 3D Globe Explorer">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="2" y1="12" x2="22" y2="12" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
+          <span>3D Globe</span>
+        </button>
+        <button class="view-btn" id="view-btn-2d" data-view="2d" title="Switch to 2D Street Map">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+            <line x1="8" y1="2" x2="8" y2="18" />
+            <line x1="16" y1="6" x2="16" y2="22" />
+          </svg>
+          <span>2D Map</span>
+        </button>
+        <button class="view-btn" id="view-btn-split" data-view="split" title="Switch to Synchronized Split View">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="12" y1="3" x2="12" y2="21" />
+          </svg>
+          <span>Split View</span>
+        </button>
+      </div>
+
+      <div class="hud-telemetry-pills">
+        <button class="pill-action-btn" id="btn-toggle-hud" title="Toggle Floating HUD Panels">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+            <line x1="15" y1="3" x2="15" y2="21" />
+          </svg>
+          <span id="hud-toggle-text">Hide Panels</span>
+        </button>
+        <div class="pill active">
+          <span class="pill-dot"></span>
+          <span class="pill-label">DGGS:</span>
+          <span class="pill-value">ONLINE</span>
+        </div>
+        <div class="pill">
+          <span class="pill-label">EULER:</span>
+          <span class="pill-value" id="euler-formula">V = 10·4ᴿ + 2</span>
+        </div>
+        <div class="pill">
+          <span class="pill-label">PRECISION:</span>
+          <span class="pill-value">&lt; 0.0006 mm</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Floating Map Toolbar (Appears in 2D Map & Split View) -->
+    <div id="map-toolbar" class="map-toolbar glass-card">
+      <div class="toolbar-group">
+        <label class="toolbar-label" for="basemap-select">BASEMAP</label>
+        <select id="basemap-select" class="toolbar-select">
+          <option value="dark">Dark Matter (Carto)</option>
+          <option value="satellite">Satellite Hybrid (Esri)</option>
+          <option value="voyager">Streets & Roads (Voyager)</option>
+          <option value="midnight">Midnight Minimal</option>
+        </select>
+      </div>
+
+      <div class="toolbar-separator"></div>
+
+      <div class="toolbar-group">
+        <button class="toolbar-pill-btn active" id="btn-auto-lod" title="Toggle Zoom-Adaptive Level of Detail">
+          <span class="pill-dot glow-cyan"></span>
+          <span class="toolbar-btn-text" id="auto-lod-text">Auto-LOD: ON</span>
+        </button>
+      </div>
+
+      <div class="toolbar-separator"></div>
+
+      <div class="toolbar-group">
+        <button class="toolbar-icon-btn" id="btn-toggle-centroids" title="Toggle Cell Centroid Markers">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="3" fill="currentColor" />
+          </svg>
+          <span>Centroids</span>
+        </button>
+
+        <button class="toolbar-icon-btn" id="btn-toggle-heatmap" title="Toggle Simulated Fleet Density Heatmap">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+          </svg>
+          <span>Heatmap</span>
+        </button>
+
+        <button class="toolbar-icon-btn" id="btn-sync-views" title="Synchronize 3D Globe & 2D Map Camera in Split View">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10" />
+            <polyline points="1 20 1 14 7 14" />
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+          </svg>
+          <span id="sync-text">Sync: OFF</span>
+        </button>
+      </div>
+
+      <div class="toolbar-separator"></div>
+
+      <!-- Quick Geocoder Search -->
+      <div class="toolbar-group search-group">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input type="text" id="map-search-input" placeholder="Search city or lat, lng..." autocomplete="off">
+        </div>
+        <div id="search-results-dropdown" class="search-dropdown glass-card"></div>
+        <button class="toolbar-icon-btn" id="btn-locate-me" title="Locate Current Position">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 19 21 12 17 5 21 12 2" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Floating Dock Buttons (Shown when side panels are collapsed) -->
+    <button class="dock-pill dock-pill-left glass-card" id="dock-btn-left" title="Expand Controls Panel">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="4" y1="21" x2="4" y2="14" />
+        <line x1="4" y1="10" x2="4" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12" y2="3" />
+        <line x1="20" y1="21" x2="20" y2="16" />
+        <line x1="20" y1="12" x2="20" y2="3" />
+        <line x1="1" y1="14" x2="7" y2="14" />
+        <line x1="9" y1="8" x2="15" y2="8" />
+        <line x1="17" y1="16" x2="23" y2="16" />
+      </svg>
+      <span>Controls</span>
+    </button>
+
+    <button class="dock-pill dock-pill-right glass-card" id="dock-btn-right" title="Expand Inspector Panel">
+      <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <polyline points="10 9 9 9 8 9" />
+      </svg>
+      <span>Inspector</span>
+    </button>
+
+    <!-- Left Controls Panel -->
+    <aside class="hud-panel hud-left glass-card" id="hud-panel-left">
+      <div class="panel-top-bar">
+        <div class="panel-top-title">
+          <span class="panel-icon">⚙</span>
+          <span>CONFIGURATION</span>
+        </div>
+        <button class="panel-close-btn" id="btn-collapse-left" title="Collapse Panel (Hide)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="11 17 6 12 11 7" />
+            <polyline points="18 17 13 12 18 7" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-header">
+          <h2>Grid Mesh Mode</h2>
+          <span class="section-tag" id="mode-tag">DUAL VORONOI</span>
+        </div>
+        <div class="mode-switch-group">
+          <button class="mode-btn" id="mode-primal" data-mode="primal">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 3 22 21 2 21" />
+            </svg>
+            <span>Primal (Triangles)</span>
+          </button>
+          <button class="mode-btn active" id="mode-dual" data-mode="dual">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 21 7 21 17 12 22 3 17 3 7" />
+            </svg>
+            <span>Dual (Hexagons)</span>
+          </button>
+          <button class="mode-btn" id="mode-hybrid" data-mode="hybrid">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 3 22 21 2 21" stroke="#00f0ff" fill="none" />
+              <polygon points="12 6 18 10 18 17 12 20 6 17 6 10" stroke="#f59e0b" fill="none" />
+            </svg>
+            <span>Hybrid Dual-Mesh</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-header">
+          <h2>Resolution Level</h2>
+          <span class="section-tag highlight-tag" id="res-badge">Res 2</span>
+        </div>
+        <div class="slider-container">
+          <div class="slider-labels">
+            <span>R0 (Planetary)</span>
+            <span>R4 (Macro)</span>
+            <span>R8 (Metro)</span>
+            <span>R12 (Street)</span>
+          </div>
+          <input type="range" id="resolution-slider" min="0" max="12" value="2" step="1">
+        </div>
+        <div class="metric-readouts">
+          <div class="readout-item">
+            <span class="readout-title">Total Cells</span>
+            <span class="readout-num" id="total-cells-count">162</span>
+          </div>
+          <div class="readout-item">
+            <span class="readout-title">Circumradius</span>
+            <span class="readout-num" id="cell-circumradius">1,010 km</span>
+          </div>
+          <div class="readout-item">
+            <span class="readout-title">Edge Length</span>
+            <span class="readout-num" id="cell-edge-length">1,750 km</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2D Map Cartography Controls (Visible in 2D & Split) -->
+      <div class="panel-section" id="section-cartography">
+        <div class="section-header">
+          <h2>2D Map Overlays</h2>
+          <span class="section-tag">LEAFLET</span>
+        </div>
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <span class="toggle-name">Grid Boundaries</span>
+            <input type="checkbox" id="toggle-map-grid" checked>
+            <span class="toggle-switch"></span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-name">Cell Fill Shading</span>
+            <input type="checkbox" id="toggle-map-fill" checked>
+            <span class="toggle-switch"></span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-name">Cell Centroid Pins</span>
+            <input type="checkbox" id="toggle-map-centroids">
+            <span class="toggle-switch"></span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-name">Simulated Fleet Heatmap</span>
+            <input type="checkbox" id="toggle-map-heatmap">
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+        <div class="slider-container" style="margin-top: 6px;">
+          <div class="slider-labels">
+            <span>Cell Opacity</span>
+            <span id="opacity-label">25%</span>
+          </div>
+          <input type="range" id="cell-opacity-slider" min="5" max="90" value="25" step="5">
+        </div>
+      </div>
+
+      <!-- 3D Polyhedron Layers (Visible in 3D & Split) -->
+      <div class="panel-section" id="section-polyhedron">
+        <div class="section-header">
+          <h2>3D Polyhedron Layers</h2>
+          <span class="section-tag">THREE.JS</span>
+        </div>
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <span class="toggle-name">Icosahedron 20 Faces</span>
+            <input type="checkbox" id="toggle-faces" checked>
+            <span class="toggle-switch"></span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-name">30 Polyhedral Edges</span>
+            <input type="checkbox" id="toggle-edges" checked>
+            <span class="toggle-switch"></span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-name">12 Pentagonal Vertices</span>
+            <input type="checkbox" id="toggle-vertices" checked>
+            <span class="toggle-switch"></span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-name">Subdivision Wireframe</span>
+            <input type="checkbox" id="toggle-grid" checked>
+            <span class="toggle-switch"></span>
+          </label>
+          <label class="toggle-row">
+            <span class="toggle-name">Atmospheric Glow</span>
+            <input type="checkbox" id="toggle-atmosphere" checked>
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-header">
+          <h2>Spatial Analytics Tools</h2>
+        </div>
+        <div class="tool-group">
+          <div class="tool-row">
+            <span class="tool-label">Concentric k-Ring Expansion:</span>
+            <span class="tool-val" id="ring-radius-val">k = 1 (7 cells)</span>
+          </div>
+          <input type="range" id="ring-slider" min="0" max="4" value="1" step="1">
+        </div>
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <span class="toggle-name">Directed Edge Flow Vectors</span>
+            <input type="checkbox" id="toggle-directed-edges" checked>
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+        <div class="btn-group">
+          <button class="action-btn" id="btn-demo-polyfill">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path
+                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+              <line x1="12" y1="22.08" x2="12" y2="12" />
+            </svg>
+            <span>Rasterize Sample Geofence</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="section-header">
+          <h2>Metropolitan Presets</h2>
+        </div>
+        <div class="preset-chips">
+          <button class="chip-btn" data-lat="6.5244" data-lng="3.3792" data-zoom="11">Lagos</button>
+          <button class="chip-btn" data-lat="37.7749" data-lng="-122.4194" data-zoom="11">San Francisco</button>
+          <button class="chip-btn" data-lat="40.7128" data-lng="-74.0060" data-zoom="11">New York</button>
+          <button class="chip-btn" data-lat="51.5074" data-lng="-0.1278" data-zoom="11">London</button>
+          <button class="chip-btn" data-lat="35.6762" data-lng="139.6503" data-zoom="11">Tokyo</button>
+          <button class="chip-btn" data-lat="1.3521" data-lng="103.8198" data-zoom="11">Singapore</button>
+          <button class="chip-btn" data-lat="89.9" data-lng="0.0" data-zoom="4">North Pole (Singularity)</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right Telemetry & Inspector Panel -->
+    <aside class="hud-panel hud-right glass-card" id="hud-panel-right">
+      <div class="panel-top-bar">
+        <div class="panel-top-title">
+          <span class="panel-icon">📊</span>
+          <span>CELL INSPECTOR</span>
+        </div>
+        <button class="panel-close-btn" id="btn-collapse-right" title="Collapse Panel (Hide)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="13 17 18 12 13 7" />
+            <polyline points="6 17 11 12 6 7" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="inspector-header">
+        <div class="badge-row">
+          <span class="cell-type-badge" id="cell-type-badge">HEXAGONAL DUAL CELL</span>
+          <span class="cell-degree-badge" id="cell-degree-badge">DEGREE 6</span>
+        </div>
+      </div>
+
+      <!-- Hex ID Card -->
+      <div class="telemetry-card">
+        <div class="card-label">CANONICAL 64-BIT TRIHEX ID</div>
+        <div class="id-display-row">
+          <code class="id-hex" id="cell-hex-id">0x4e40000000005ea2</code>
+          <button class="copy-btn" id="btn-copy-id" title="Copy TriHexId">
+            <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          </button>
+        </div>
+        <div class="id-decimal" id="cell-dec-id">Decimal: 5,638,487,363,732,922,018</div>
+      </div>
+
+      <!-- Spatial Coordinates Grid -->
+      <div class="coords-grid">
+        <div class="coord-box">
+          <span class="coord-title">Face ID</span>
+          <span class="coord-val" id="telemetry-face">19 / 20</span>
+        </div>
+        <div class="coord-box">
+          <span class="coord-title">Resolution</span>
+          <span class="coord-val" id="telemetry-res">Res 2</span>
+        </div>
+        <div class="coord-box">
+          <span class="coord-title">Morton / (I, J)</span>
+          <span class="coord-val" id="telemetry-morton">I: 2, J: 1</span>
+        </div>
+        <div class="coord-box">
+          <span class="coord-title">Centroid</span>
+          <span class="coord-val" id="telemetry-centroid">6.5244°, 3.3792°</span>
+        </div>
+      </div>
+
+      <!-- 1D SQL B-Tree Range Card -->
+      <div class="telemetry-card">
+        <div class="card-label">1D DATABASE B-TREE INTERVAL (100% DENSITY, ZERO LEAKS)</div>
+        <pre class="sql-box" id="sql-box"><code>SELECT * FROM driver_positions
+WHERE cell_id BETWEEN 0x4e00000000000000
+                  AND 0x4e0000000000000f;</code></pre>
+        <div class="interval-note">
+          <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+            <polyline points="22 4 12 14.01 9 11.01" />
+          </svg>
+          <span>End - Start + 1 == 4^ΔR (Zero False Positives)</span>
+        </div>
+      </div>
+
+      <!-- Immediate Neighbors -->
+      <div class="telemetry-card">
+        <div class="card-label" id="neighbors-label">IMMEDIATE ADJACENT NEIGHBORS (6 LINKS)</div>
+        <div class="neighbors-list" id="neighbors-list">
+          <div class="neighbor-chip">0x4e40000000005ea1</div>
+          <div class="neighbor-chip">0x4e40000000005ea3</div>
+          <div class="neighbor-chip">0x4e40000000005ea4</div>
+          <div class="neighbor-chip">0x4e40000000005ea5</div>
+          <div class="neighbor-chip">0x4e40000000005ea6</div>
+          <div class="neighbor-chip">0x4e40000000005ea7</div>
+        </div>
+      </div>
+
+      <!-- Flow Vector Details -->
+      <div class="telemetry-card" id="flow-card">
+        <div class="card-label">CANONICAL 63-BIT DIRECTED EDGE (FLOW VECTOR)</div>
+        <div class="flow-row">
+          <span class="flow-chip" id="flow-origin">Origin</span>
+          <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
+          <span class="flow-chip" id="flow-dest">Destination</span>
+        </div>
+        <div class="id-display-row" style="margin-top: 8px;">
+          <code class="id-hex" id="edge-hex-id" style="font-size: 11px;">0x4e50000000005ea2</code>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Floating Cursor Hover Tooltip -->
+    <div id="cell-hover-tooltip" class="cell-hover-tooltip glass-card">
+      <div class="tooltip-header">
+        <span class="tooltip-tag" id="tooltip-type">HEX DUAL</span>
+        <span class="tooltip-res" id="tooltip-res">R8</span>
+      </div>
+      <div class="tooltip-id" id="tooltip-hex">0x4e80...</div>
+      <div class="tooltip-coord" id="tooltip-coords">6.5244°, 3.3792°</div>
+      <div class="tooltip-hint">Click to inspect cell &amp; B-Tree range</div>
+    </div>
+
+    <!-- Bottom Status Bar -->
+    <footer class="hud-footer glass-card">
+      <div class="footer-left">
+        <span class="footer-coord" id="footer-coords">CURSOR: Lat: 6.5244°, Lng: 3.3792°</span>
+        <span class="footer-sep">|</span>
+        <span class="footer-hint" id="footer-instructions">CLICK CELL TO INSPECT • DRAG TO PAN • SCROLL TO ZOOM • AUTO-LOD ACTIVE</span>
+      </div>
+      <div class="footer-right">
+        <span class="footer-stat" id="cell-counter-footer">Visible Cells: 0</span>
+        <span class="footer-sep">|</span>
+        <span class="footer-stat" id="fps-counter">60 FPS</span>
+        <span class="footer-sep">|</span>
+        <span class="footer-stat">TriHex v1.0.0</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Main Application Script (ES Module) -->
+  <script type="module" src="app.js"></script>
+</body>
+
+</html>

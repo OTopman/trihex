@@ -1,0 +1,24 @@
+{
+  "name": "@trihex/example-streaming-fleet-dispatch",
+  "version": "1.0.0",
+  "description": "Production streaming reference architecture for TriHex: Kafka/Redpanda telemetry ingestion, Redis Cluster spatial macro-sharding, and two-tier ride dispatch",
+  "private": true,
+  "main": "dist/api.js",
+  "scripts": {
+    "build": "tsc",
+    "demo": "node dist/standalone-demo.js",
+    "example:streaming": "node dist/standalone-demo.js",
+    "start:simulator": "node dist/simulator.js",
+    "start:worker": "node dist/worker.js",
+    "start:api": "node dist/api.js",
+    "dev:demo": "ts-node src/standalone-demo.ts"
+  },
+  "dependencies": {
+    "trihex": "file:../../"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

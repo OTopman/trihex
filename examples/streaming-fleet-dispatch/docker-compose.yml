@@ -1,0 +1,103 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. High-Performance Event Streaming Broker (Redpanda / Kafka-Compatible)
+  # ---------------------------------------------------------------------------
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.11
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+    ports:
+      - "19092:19092"
+      - "9644:9644" # Admin API
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # 2. Distributed 3-Node Redis Cluster with 16,384 Hash Slots
+  # ---------------------------------------------------------------------------
+  redis-node-1:
+    image: redis:7-alpine
+    command: redis-server --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly no --protected-mode no
+    ports:
+      - "7379:6379"
+
+  redis-node-2:
+    image: redis:7-alpine
+    command: redis-server --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly no --protected-mode no
+    ports:
+      - "7380:6379"
+
+  redis-node-3:
+    image: redis:7-alpine
+    command: redis-server --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly no --protected-mode no
+    ports:
+      - "7381:6379"
+
+  redis-cluster-init:
+    image: redis:7-alpine
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+    command: >
+      sh -c "sleep 2 && if redis-cli -h redis-node-1 cluster info | grep -q 'cluster_state:ok'; then echo 'REDIS_CLUSTER_ALREADY_INITIALIZED'; else redis-cli --cluster create redis-node-1:6379 redis-node-2:6379 redis-node-3:6379 --cluster-yes && echo 'REDIS_CLUSTER_READY'; fi"
+
+  # ---------------------------------------------------------------------------
+  # 3. TriHex Stream Consumer Worker Fleet
+  # ---------------------------------------------------------------------------
+  stream-worker:
+    build:
+      context: ../../
+      dockerfile: examples/streaming-fleet-dispatch/Dockerfile
+    command: ["npm", "run", "start:worker"]
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+      - REDIS_NODES=redis-node-1:6379,redis-node-2:6379,redis-node-3:6379
+      - RESOLUTION=10
+      - MACRO_SHARD_RES=4
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      redis-cluster-init:
+        condition: service_completed_successfully
+
+  # ---------------------------------------------------------------------------
+  # 4. TriHex Mobility Dispatch REST API Service
+  # ---------------------------------------------------------------------------
+  dispatch-api:
+    build:
+      context: ../../
+      dockerfile: examples/streaming-fleet-dispatch/Dockerfile
+    command: ["npm", "run", "start:api"]
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - REDIS_NODES=redis-node-1:6379,redis-node-2:6379,redis-node-3:6379
+    depends_on:
+      redis-cluster-init:
+        condition: service_completed_successfully
+
+  # ---------------------------------------------------------------------------
+  # 5. Autonomous Fleet Telemetry Simulator
+  # ---------------------------------------------------------------------------
+  telemetry-simulator:
+    build:
+      context: ../../
+      dockerfile: examples/streaming-fleet-dispatch/Dockerfile
+    command: ["npm", "run", "start:simulator"]
+    environment:
+      - KAFKA_BROKERS=redpanda:9092
+      - DRIVER_COUNT=5000
+      - CITY_ID=lagos
+    depends_on:
+      redpanda:
+        condition: service_healthy
